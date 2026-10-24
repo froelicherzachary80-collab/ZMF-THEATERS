@@ -1,0 +1,152 @@
+name: iOS build & IPA
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit & API fixture tests (simulator)
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          best = None
+          for runtime, devices in data.items():
+              if "iOS" not in runtime:
+                  continue
+              for d in devices:
+                  if d["name"].startswith("iPhone"):
+                      key = (runtime, "Pro" in d["name"])
+                      if best is None or key > best[0]:
+                          best = (key, d["udid"], d["name"])
+          print(best[1] if best else "")
+          ')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Simulator: $UDID"
+
+      - name: Test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project ZMFTheaters.xcodeproj \
+            -scheme ZMFTheaters \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            CODE_SIGNING_ALLOWED=NO | tee test.log | grep -E "error:|warning: .*ZMFTheaters|Test Case|Executed|\*\* TEST" || true
+          grep -q "\*\* TEST SUCCEEDED \*\*" test.log
+
+      - name: Upload test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-log
+          path: test.log
+
+  ipa:
+    name: Build IPA
+    runs-on: macos-15
+    timeout-minutes: 40
+    env:
+      BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+      PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+      TEAM_ID: ${{ secrets.TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Build unsigned device app
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ZMFTheaters.xcodeproj \
+            -scheme ZMFTheaters \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" | tee build.log | grep -E "error:|warning: .*\.swift|\*\* BUILD" || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" build.log
+
+      - name: Package unsigned IPA (for re-signing with Sideloadly / AltStore)
+        run: |
+          rm -rf Payload && mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/ZMFTheaters.app Payload/
+          /usr/bin/zip -qry ZMFTheaters-unsigned.ipa Payload
+          ls -lh ZMFTheaters-unsigned.ipa
+
+      - name: Signed archive & export (only when signing secrets are configured)
+        if: env.BUILD_CERTIFICATE_BASE64 != '' && env.PROVISIONING_PROFILE_BASE64 != '' && env.TEAM_ID != ''
+        run: |
+          set -euo pipefail
+          KEYCHAIN=$RUNNER_TEMP/build.keychain-db
+          KC_PASS=$(uuidgen)
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > $RUNNER_TEMP/cert.p12
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > $RUNNER_TEMP/profile.mobileprovision
+          security create-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security import $RUNNER_TEMP/cert.p12 -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KC_PASS" "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN"
+          PROFILE_PLIST=$RUNNER_TEMP/profile.plist
+          security cms -D -i $RUNNER_TEMP/profile.mobileprovision > "$PROFILE_PLIST"
+          UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" "$PROFILE_PLIST")
+          NAME=$(/usr/libexec/PlistBuddy -c "Print Name" "$PROFILE_PLIST")
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $RUNNER_TEMP/profile.mobileprovision ~/Library/MobileDevice/Provisioning\ Profiles/$UUID.mobileprovision
+
+          cp ExportOptions.plist $RUNNER_TEMP/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Set :teamID $TEAM_ID" $RUNNER_TEMP/ExportOptions.plist
+          /usr/libexec/PlistBuddy -c "Set :provisioningProfiles:com.zmf.theatersplus $NAME" $RUNNER_TEMP/ExportOptions.plist
+
+          xcodebuild archive \
+            -project ZMFTheaters.xcodeproj -scheme ZMFTheaters -configuration Release \
+            -destination "generic/platform=iOS" -archivePath $RUNNER_TEMP/ZMFTheaters.xcarchive \
+            CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM="$TEAM_ID" PROVISIONING_PROFILE_SPECIFIER="$NAME" CODE_SIGN_IDENTITY="Apple Development" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN"
+          xcodebuild -exportArchive -archivePath $RUNNER_TEMP/ZMFTheaters.xcarchive \
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist -exportPath signed
+          ls -lh signed
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZMFTheaters-ipa
+          path: |
+            ZMFTheaters-unsigned.ipa
+            signed/*.ipa
+          if-no-files-found: warn
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
