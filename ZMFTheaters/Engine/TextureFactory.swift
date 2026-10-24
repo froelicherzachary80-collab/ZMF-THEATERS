@@ -78,7 +78,7 @@ final class TextureFactory {
                 ctx.fillEllipse(in: CGRect(x: x, y: r.height - 24, width: 14, height: 14))
                 x += 36
             }
-            Self.drawCentered("ZMF THEATERS+", in: r.insetBy(dx: 20, dy: 30), font: .systemFont(ofSize: 130, weight: .black),
+            Self.drawCentered("ZMF THEATERS+", in: r.insetBy(dx: 20, dy: 30), font: .systemFont(ofSize: 100, weight: .black),
                               color: UIColor(red: 1, green: 0.8, blue: 0.3, alpha: 1), shadow: .orange)
         }
     }
