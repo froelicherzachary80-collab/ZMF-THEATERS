@@ -75,6 +75,32 @@ final class AppModel: ObservableObject {
         refreshSignage()
     }
 
+    /// `-zmfShot lobby|hall|room|seat` jumps straight to a camera position. Used by
+    /// CI to capture simulator screenshots of the real renderer.
+    func applyLaunchArguments() {
+        let args = ProcessInfo.processInfo.arguments
+        guard let i = args.firstIndex(of: "-zmfShot"), i + 1 < args.count else { return }
+        mode = .singleplayer
+        switch args[i + 1] {
+        case "lobby":
+            game.debugPlace(Vec3(0, 0, 1.5), yaw: 0, pitch: 0.12)
+        case "hall":
+            game.debugPlace(Vec3(1.5, 0, 22), yaw: -0.15, pitch: 0.02)
+        case "room":
+            let t = CinemaWorld.transform(room: 5)
+            game.debugPlace(t.point(Vec3(23, 0, 7)), yaw: CinemaWorld.screenYaw(5), pitch: -0.12)
+        case "seat":
+            let item = MediaItem(serverAccountId: UUID(), itemId: "demo", kind: .movie, title: "Preshow Demo", year: 2026)
+            let ticket = Ticket(mediaId: item.id, title: item.title, roomId: 9, row: 5, seat: 3, showtime: nil, isPrivate: true, kind: .vip, price: 0)
+            let seat = CinemaWorld.seatPosition(room: 9, row: 5, seat: 3)
+            game.debugPlace(seat, yaw: CinemaWorld.screenYaw(9), pitch: 0)
+            game.sit(room: 9, row: 5, seat: 3)
+            session.begin(ticket: ticket, item: item, resumeAt: nil, library: library, settings: settings)
+        default:
+            break
+        }
+    }
+
     func flash(_ message: String) {
         toast = message
         Task {
@@ -157,7 +183,7 @@ final class AppModel: ObservableObject {
 
     func guide(to ticket: Ticket?) {
         guidedTicket = ticket
-        game.seatTarget = ticket.map { ($0.roomId, $0.row, $0.seat) }
+        game.seatTarget = ticket.map { (room: $0.roomId, row: $0.row, seat: $0.seat) }
     }
 
     func refreshUnlocks() {

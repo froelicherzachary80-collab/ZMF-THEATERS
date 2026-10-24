@@ -18,7 +18,10 @@ struct ZMFTheatersApp: App {
                 .preferredColorScheme(.dark)
                 .statusBarHidden()
                 .persistentSystemOverlays(.hidden)
-                .task { await model.launch() }
+                .task {
+                    model.applyLaunchArguments()
+                    await model.launch()
+                }
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {

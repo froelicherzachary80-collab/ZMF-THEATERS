@@ -180,6 +180,15 @@ final class CinemaGame: ObservableObject {
 
     func toggleRecline() { if isSeated { reclined.toggle() } }
 
+    /// Places the player directly (used by the `-zmfShot` launch argument for screenshots).
+    func debugPlace(_ p: Vec3, yaw: Float, pitch: Float) {
+        seatedAt = nil
+        position = p
+        self.yaw = yaw
+        self.pitch = pitch
+        refreshHUD()
+    }
+
     func teleportToLobby() {
         seatedAt = nil
         position = Vec3(CinemaWorld.spawn.x, 0, CinemaWorld.spawn.y)

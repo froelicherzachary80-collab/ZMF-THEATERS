@@ -62,6 +62,75 @@ jobs:
           name: test-log
           path: test.log
 
+  screenshots:
+    name: Renderer screenshots (simulator)
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)["devices"]
+          best = None
+          for runtime, devices in data.items():
+              if "iOS" not in runtime:
+                  continue
+              for d in devices:
+                  if d["name"].startswith("iPhone"):
+                      key = (runtime, "Pro" in d["name"])
+                      if best is None or key > best[0]:
+                          best = (key, d["udid"], d["name"])
+          print(best[1] if best else "")
+          ')
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build for simulator
+        run: |
+          set -o pipefail
+          xcodebuild build -project ZMFTheaters.xcodeproj -scheme ZMFTheaters \
+            -destination "id=${{ steps.sim.outputs.udid }}" -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO | tee sim-build.log | grep -E "error:|\*\* BUILD" || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" sim-build.log
+
+      - name: Capture screenshots
+        run: |
+          UDID=${{ steps.sim.outputs.udid }}
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" build/Build/Products/Debug-iphonesimulator/ZMFTheaters.app
+          mkdir -p shots
+          for shot in lobby hall room seat; do
+            xcrun simctl launch "$UDID" com.zmf.theatersplus -zmfShot $shot
+            sleep 10
+            xcrun simctl io "$UDID" screenshot "shots/$shot.png"
+            xcrun simctl terminate "$UDID" com.zmf.theatersplus || true
+            sleep 1
+          done
+
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: shots/*.png
+
+      - name: Print screenshot previews
+        run: |
+          for f in shots/*.png; do
+            sips -Z 520 -s format jpeg -s formatOptions 45 "$f" --out "${f%.png}.jpg" >/dev/null
+            echo "===BEGIN $(basename "${f%.png}")"
+            base64 -b 150 -i "${f%.png}.jpg"
+            echo "===END"
+          done
+
   ipa:
     name: Build IPA
     runs-on: macos-15

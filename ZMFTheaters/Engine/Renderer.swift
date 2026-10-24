@@ -78,7 +78,8 @@ final class Renderer {
               let library = device.makeDefaultLibrary() else { return nil }
         self.device = device
         self.queue = queue
-        self.factory = TextureFactory(device: device)
+        let factory = TextureFactory(device: device)
+        self.factory = factory
 
         let vd = MTLVertexDescriptor()
         vd.attributes[0].format = .float3; vd.attributes[0].offset = 0; vd.attributes[0].bufferIndex = 0

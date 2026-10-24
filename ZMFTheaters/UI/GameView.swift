@@ -35,6 +35,12 @@ struct GameView: View {
             }
         }
         .sheet(item: $sheet) { s in sheetContent(s) }
+        .onAppear {
+            // Gameplay prefers landscape; menus still work in portrait.
+            if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape)) { _ in }
+            }
+        }
         .alert("Resume screening?", isPresented: resumeBinding, presenting: model.showResumePrompt) { p in
             Button("Resume at \(formatTime(p.position))") { model.startScreening(ticket: p.ticket, item: p.item, resumeAt: p.position) }
             Button("Start from the beginning") { model.startScreening(ticket: p.ticket, item: p.item, resumeAt: nil) }
