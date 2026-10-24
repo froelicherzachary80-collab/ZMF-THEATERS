@@ -1,6 +1,14 @@
 # ZMF THEATERS+
 
-**AAA-inspired private cinema universe for iPhone. Native iOS edition, version 0.1.**
+**AAA-inspired private cinema universe for iPhone, with a Windows 10/11 companion app. Version 0.2.**
+
+**Downloads:** the latest builds are attached to the [`v0.2.0-preview` release](../../releases/tag/v0.2.0-preview):
+
+- `ZMFTheaters-unsigned.ipa` for iPhone (see [docs/INSTALL.md](docs/INSTALL.md))
+- `ZMFTheaters.exe` for Windows 10/11 (single file; Windows SmartScreen may warn because the exe isn't code-signed: choose *More info → Run anyway*)
+- `ZMFTheaters-Windows-x64.zip`, the same Windows app as a portable folder
+
+**New in 0.2:** the controls hide while you watch, the renderer has HDR bloom, a projector beam with dust and a curved screen, and you can host **online watch parties with friends** through Jellyfin SyncPlay ([guide](docs/WATCH_PARTY.md)).
 
 ZMF THEATERS+ is a single-player 3D movie theater for iPhone. You walk into a cinema building, buy a ticket with fictional ZMF CASH, walk to the right auditorium, sit in your seat, and watch real movies and TV episodes streamed from **your own Jellyfin servers** on the giant in-world screen.
 
@@ -57,6 +65,18 @@ Every push runs [`.github/workflows/ios.yml`](.github/workflows/ios.yml) on a Gi
 To download the IPA: GitHub → **Actions** → latest run → **Artifacts → ZMFTheaters-ipa**.
 
 See [docs/INSTALL.md](docs/INSTALL.md) for installing it on your iPhone, and [docs/BUILD.md](docs/BUILD.md) for building locally in Xcode.
+
+## Windows app
+
+`windows/ZMFTheaters.Windows` is a native WPF (.NET 8) app. It is **not** the 3D world (that is iPhone-only for now). It is a cinema-styled companion app:
+
+- **Now Showing:** the same 72-hour rotation rules as the iPhone app.
+- **Library:** your movies and TV, across all your servers.
+- **Theater window:** red curtains, a glowing screen, rows of seats, house lights that dim for the feature, a preshow and countdown, and auto-hiding controls. You get audio and subtitle track selection, keyboard shortcuts (Space, ←/→, F, Esc) and a fullscreen-picture mode.
+- **Playback:** uses **LibVLC**, so MKV, HEVC, DTS and other formats stream untouched from Jellyfin, with no server transcoding.
+- **Watch Parties:** host or join SyncPlay groups. These stay in sync with friends on iPhone or any Jellyfin app.
+
+Build it locally with `dotnet publish windows/ZMFTheaters.Windows -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true`.
 
 ## Project layout
 

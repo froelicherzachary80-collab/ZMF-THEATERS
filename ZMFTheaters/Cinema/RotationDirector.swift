@@ -104,7 +104,7 @@ final class RotationDirector: ObservableObject {
         let excludedLibs = Set(settings.excludedLibraryIds)
         let pool = candidates
             .filter { !excluded.contains($0.id) && !excludedLibs.contains($0.libraryId ?? "") }
-            .sorted { $0.id < $1.id } // stable order before seeded shuffling
+            .sorted { $0.itemId == $1.itemId ? $0.id < $1.id : $0.itemId < $1.itemId } // stable, device-independent order (matches the Windows app)
         let previous = Set(recent.first ?? [])
         let cooldown = Set(recent.prefix(max(1, settings.repeatCooldownRotations)).flatMap { $0 })
         let preferred = settings.preferredGenres.map { $0.lowercased() }

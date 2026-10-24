@@ -189,9 +189,11 @@ fragment float4 beam_fragment(VOut in [[stage_in]],
                               constant float4 *screenAvg [[buffer(3)]]) {
     float t = in.uv.x;                 // 0 at the lens, 1 at the screen
     float time = f.cameraPos.w;
-    float3 p = in.worldPos * 10.0 + float3(time * 0.11, time * 0.05, time * 0.08);
-    float dust = smoothstep(0.992, 1.0, hash3(floor(p)));
-    float twinkle = 0.5 + 0.5 * sin(time * 3.0 + hash3(floor(p) + 7.0) * 30.0);
+    float3 p = in.worldPos * 34.0 + float3(time * 0.35, time * 0.17, time * 0.27);
+    float3 cell = fract(p) - 0.5;
+    float speck = smoothstep(0.22, 0.0, length(cell));          // round, sub-cell motes
+    float dust = step(0.996, hash3(floor(p))) * speck;
+    float twinkle = 0.6 + 0.4 * sin(time * 2.0 + hash3(floor(p) + 7.0) * 30.0);
     float haze = 0.03 * (1.0 - 0.65 * t);
     float3 tint = screenAvg[0].rgb + 0.03;
     float camFade = saturate(length(f.cameraPos.xyz - in.worldPos) / 1.8);

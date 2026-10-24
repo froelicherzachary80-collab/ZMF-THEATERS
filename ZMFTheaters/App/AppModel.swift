@@ -103,13 +103,14 @@ final class AppModel: ObservableObject {
         case "room":
             let t = CinemaWorld.transform(room: 5)
             game.debugPlace(t.point(Vec3(23, 0, 7)), yaw: CinemaWorld.screenYaw(5), pitch: -0.12)
-        case "seat":
+        case "seat", "seatleft":
             let item = MediaItem(serverAccountId: UUID(), itemId: "demo", kind: .movie, title: "Preshow Demo", year: 2026)
             let ticket = Ticket(mediaId: item.id, title: item.title, roomId: 9, row: 5, seat: 3, showtime: nil, isPrivate: true, kind: .vip, price: 0)
             let seat = CinemaWorld.seatPosition(room: 9, row: 5, seat: 3)
             game.debugPlace(seat, yaw: CinemaWorld.screenYaw(9), pitch: 0)
             game.sit(room: 9, row: 5, seat: 3)
             session.begin(ticket: ticket, item: item, resumeAt: nil, library: library, settings: settings)
+            if args[i + 1] == "seatleft" { game.lookDelta = Vec2(-240, 10) }
             if args.contains("-zmfDemoParty") {
                 updatePartyGuests(["Alex", "Sam"])
                 renderer?.carrying = (true, true)

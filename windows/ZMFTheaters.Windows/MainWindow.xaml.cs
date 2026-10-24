@@ -1,0 +1,307 @@
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using ZMFTheaters.Cinema;
+using ZMFTheaters.Jellyfin;
+
+namespace ZMFTheaters;
+
+public sealed class RoomCard
+{
+    public required Room Room { get; init; }
+    public required MediaEntry Film { get; init; }
+    public string RoomTitle => Room.Title;
+    public string FilmTitle => Film.Title;
+    public string PosterUrl => Film.PosterUrl;
+    public string Meta => Film.Meta;
+    public Brush Accent => new SolidColorBrush((Color)ColorConverter.ConvertFromString(Room.Accent));
+}
+
+public partial class MainWindow : Window
+{
+    readonly AppConfig config = AppConfig.Load();
+    readonly Dictionary<string, JellyfinClient> clients = new();
+    List<MediaEntry> catalog = new();
+    MediaEntry? selected;
+    string libraryMode = "Movies";
+
+    SyncPlayClient? party;
+    TheaterWindow? theater;
+
+    public MainWindow() => InitializeComponent();
+
+    JellyfinClient Client(ServerConfig s)
+    {
+        if (!clients.TryGetValue(s.Id, out var c))
+        {
+            c = new JellyfinClient(s.Url, s.Token, config.DeviceId);
+            clients[s.Id] = c;
+        }
+        return c;
+    }
+
+    void Status(string text) => StatusText.Text = text;
+
+    async void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        RefreshServerList();
+        if (config.Servers.Count == 0) { Show("Servers"); Status("Add your Jellyfin server to get started."); return; }
+        await SyncAsync();
+    }
+
+    // MARK: Navigation
+
+    void OnNav(object sender, RoutedEventArgs e) => Show((string)((Button)sender).Tag);
+
+    void Show(string panel)
+    {
+        NowPanel.Visibility = panel == "Now" ? Visibility.Visible : Visibility.Collapsed;
+        LibraryPanel.Visibility = panel is "Movies" or "Shows" ? Visibility.Visible : Visibility.Collapsed;
+        PartyPanel.Visibility = panel == "Parties" ? Visibility.Visible : Visibility.Collapsed;
+        ServersPanel.Visibility = panel == "Servers" ? Visibility.Visible : Visibility.Collapsed;
+        DetailOverlay.Visibility = Visibility.Collapsed;
+        if (panel is "Movies" or "Shows")
+        {
+            libraryMode = panel;
+            LibraryTitle.Text = panel == "Movies" ? "MOVIES" : "TV SHOWS";
+            ApplySearch();
+        }
+        if (panel == "Parties") _ = RefreshPartiesAsync();
+    }
+
+    // MARK: Catalog
+
+    async Task SyncAsync()
+    {
+        var all = new List<MediaEntry>();
+        foreach (var s in config.Servers)
+        {
+            try
+            {
+                Status($"Syncing {s.Name}…");
+                all.AddRange(await Client(s).ItemsAsync(s, "Movie,Series"));
+            }
+            catch (Exception ex) { Status($"{s.Name}: {ex.Message}"); }
+        }
+        catalog = all;
+        BuildNowShowing();
+        ApplySearch();
+        Status($"{catalog.Count(m => m.Type == "Movie")} movies · {catalog.Count(m => m.Type == "Series")} shows from {config.Servers.Count} server(s)");
+    }
+
+    void BuildNowShowing()
+    {
+        var index = Rotation.PeriodIndex(DateTime.UtcNow);
+        var (start, end) = Rotation.Bounds(index);
+        var picks = Rotation.Select(catalog, index);
+        NowList.ItemsSource = Rooms.All.Where(r => picks.ContainsKey(r.Id)).Select(r => new RoomCard { Room = r, Film = picks[r.Id] }).ToList();
+        ProgrammeText.Text = $"Programme {start.ToLocalTime():MMM d} – {end.AddSeconds(-1).ToLocalTime():MMM d} · twelve films, one per auditorium, new every {Rotation.Days} days";
+    }
+
+    void OnSearch(object sender, TextChangedEventArgs e) => ApplySearch();
+
+    void ApplySearch()
+    {
+        var type = libraryMode == "Movies" ? "Movie" : "Series";
+        var q = SearchBox.Text.Trim();
+        LibraryList.ItemsSource = catalog.Where(m => m.Type == type && (q.Length == 0 || m.Title.Contains(q, StringComparison.OrdinalIgnoreCase))).ToList();
+    }
+
+    // MARK: Detail
+
+    async void OnEntryClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not MediaEntry m) return;
+        selected = m;
+        DetailTitle.Text = m.Title;
+        DetailMeta.Text = $"{m.Meta}  ·  {m.Server.Name}";
+        DetailOverview.Text = m.Overview ?? "";
+        DetailRoom.Text = Rooms.BestFor(m).Title;
+        try { DetailPoster.Source = string.IsNullOrEmpty(m.PosterUrl) ? null : new BitmapImage(new Uri(m.PosterUrl)); } catch { DetailPoster.Source = null; }
+        EpisodeList.Visibility = m.Type == "Series" ? Visibility.Visible : Visibility.Collapsed;
+        EpisodeList.ItemsSource = null;
+        DetailOverlay.Visibility = Visibility.Visible;
+        if (m.Type == "Series")
+        {
+            try
+            {
+                var eps = await Client(m.Server).EpisodesAsync(m.Server, m.Id);
+                EpisodeList.ItemsSource = eps;
+                if (eps.Count > 0) EpisodeList.SelectedIndex = 0;
+            }
+            catch (Exception ex) { Status(ex.Message); }
+        }
+    }
+
+    void OnCloseDetail(object sender, RoutedEventArgs e) => DetailOverlay.Visibility = Visibility.Collapsed;
+
+    MediaEntry? ChosenPlayable() => selected?.Type == "Series" ? EpisodeList.SelectedItem as MediaEntry : selected;
+
+    void OnWatch(object sender, RoutedEventArgs e)
+    {
+        if (ChosenPlayable() is not MediaEntry m) return;
+        DetailOverlay.Visibility = Visibility.Collapsed;
+        double start = 0;
+        if (m.ResumeTicks > 600_000_000)
+        {
+            var at = TimeSpan.FromSeconds(m.ResumeTicks / 10_000_000.0);
+            if (MessageBox.Show(this, $"Resume “{m.Title}” at {at:h\\:mm\\:ss}?", "ZMF THEATERS+", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
+                start = at.TotalSeconds;
+        }
+        OpenTheater(m, start, partyMode: false, preshow: config.Preshow && start == 0);
+    }
+
+    async void OnHost(object sender, RoutedEventArgs e)
+    {
+        if (ChosenPlayable() is not MediaEntry m) return;
+        DetailOverlay.Visibility = Visibility.Collapsed;
+        try
+        {
+            await EnsurePartyAsync(m.Server);
+            OpenTheater(m, 0, partyMode: true, preshow: false);
+            await party!.HostAsync(m.Id, m.DisplayTitle, 0);
+            Status("Watch party started — friends can join from Watch Parties.");
+        }
+        catch (Exception ex) { Status("Couldn't start the party: " + ex.Message); }
+    }
+
+    // MARK: Theater
+
+    void OpenTheater(MediaEntry m, double start, bool partyMode, bool preshow)
+    {
+        theater?.Close();
+        var t = new TheaterWindow(Client(m.Server), m, start, partyMode ? party : null, preshow, config);
+        t.Closed += (_, _) => { if (theater == t) theater = null; };
+        theater = t;
+        t.Show();
+    }
+
+    // MARK: Watch parties
+
+    async Task EnsurePartyAsync(ServerConfig s)
+    {
+        if (party != null && party.Server.Id == s.Id) return;
+        if (party != null) await party.DisposeAsync();
+        var p = new SyncPlayClient(Client(s), s);
+        p.Status += text => Dispatcher.BeginInvoke(() => { PartyStatus.Text = text; Status(text); });
+        p.MembersChanged += () => Dispatcher.BeginInvoke(() =>
+        {
+            LeaveButton.IsEnabled = p.InGroup;
+            theater?.SetPartyMembers(p.Members);
+        });
+        p.PlayQueue += (itemId, start) => Dispatcher.BeginInvoke(async () =>
+        {
+            if (theater != null && theater.ItemId == itemId)
+            {
+                theater.PartyAlign(start);
+                return;
+            }
+            var entry = catalog.FirstOrDefault(c => c.Id == itemId && c.Server.Id == s.Id) ?? await Client(s).ItemAsync(s, itemId);
+            if (entry != null) OpenTheater(entry, start, partyMode: true, preshow: false);
+            else Status("The party's film isn't available to your account.");
+        });
+        p.Command += (cmd, when, pos) => Dispatcher.BeginInvoke(() => theater?.PartyCommand(cmd, when, pos));
+        await p.ConnectAsync();
+        party = p;
+    }
+
+    async Task RefreshPartiesAsync()
+    {
+        var groups = new List<PartyGroup>();
+        foreach (var s in config.Servers)
+        {
+            try { groups.AddRange(await SyncPlayClient.ListAsync(Client(s), s)); }
+            catch (Exception ex) { Status($"{s.Name}: {ex.Message}"); }
+        }
+        PartyList.ItemsSource = groups;
+        if (groups.Count == 0) PartyStatus.Text = party?.InGroup == true ? PartyStatus.Text : "No parties right now on your servers.";
+    }
+
+    async void OnRefreshParties(object sender, RoutedEventArgs e) => await RefreshPartiesAsync();
+
+    async void OnJoinParty(object sender, RoutedEventArgs e)
+    {
+        if ((sender as Button)?.Tag is not PartyGroup g) return;
+        try
+        {
+            await EnsurePartyAsync(g.Server);
+            await party!.JoinAsync(g.Id);
+            PartyStatus.Text = $"Joining {g.Name}…";
+        }
+        catch (Exception ex) { PartyStatus.Text = "Couldn't join: " + ex.Message; }
+    }
+
+    async void OnLeaveParty(object sender, RoutedEventArgs e)
+    {
+        if (party != null) await party.LeaveAsync();
+        LeaveButton.IsEnabled = false;
+        PartyStatus.Text = "Left the watch party";
+    }
+
+    // MARK: Servers
+
+    void RefreshServerList()
+    {
+        ServerList.ItemsSource = null;
+        ServerList.ItemsSource = config.Servers;
+    }
+
+    async void OnConnect(object sender, RoutedEventArgs e)
+    {
+        var url = JellyfinClient.Normalize(UrlBox.Text);
+        if (!Uri.TryCreate(url, UriKind.Absolute, out _) || UserBox.Text.Trim().Length == 0)
+        {
+            ConnectStatus.Text = "Enter a valid server URL and username.";
+            return;
+        }
+        ConnectButton.IsEnabled = false;
+        ConnectStatus.Text = "Connecting…";
+        try
+        {
+            var probe = new JellyfinClient(url, null, config.DeviceId);
+            var (serverName, version) = await probe.PublicInfoAsync();
+            var (token, userId) = await probe.AuthenticateAsync(UserBox.Text.Trim(), PassBox.Password);
+            var s = new ServerConfig
+            {
+                Name = NameBox.Text.Trim().Length > 0 ? NameBox.Text.Trim() : serverName,
+                Url = url,
+                Username = UserBox.Text.Trim(),
+                UserId = userId,
+            };
+            s.Token = token;
+            config.Servers.Add(s);
+            config.Save();
+            clients[s.Id] = probe;
+            PassBox.Clear();
+            ConnectStatus.Text = $"✓ Connected to {serverName} {version}" + (s.IsHttps ? "" : "  (warning: not HTTPS — use only on a trusted LAN/VPN)");
+            RefreshServerList();
+            await SyncAsync();
+        }
+        catch (Exception ex) { ConnectStatus.Text = ex.Message; }
+        finally { ConnectButton.IsEnabled = true; }
+    }
+
+    async void OnSync(object sender, RoutedEventArgs e) => await SyncAsync();
+
+    void OnRemoveServer(object sender, RoutedEventArgs e)
+    {
+        if (ServerList.SelectedItem is not ServerConfig s) return;
+        if (MessageBox.Show(this, $"Remove {s.Name}? Nothing on the server is changed.", "ZMF THEATERS+", MessageBoxButton.YesNo) != MessageBoxResult.Yes) return;
+        config.Servers.Remove(s);
+        clients.Remove(s.Id);
+        config.Save();
+        catalog.RemoveAll(m => m.Server.Id == s.Id);
+        RefreshServerList();
+        BuildNowShowing();
+        ApplySearch();
+    }
+
+    protected override async void OnClosed(EventArgs e)
+    {
+        theater?.Close();
+        if (party != null) await party.DisposeAsync();
+        base.OnClosed(e);
+        Application.Current.Shutdown();
+    }
+}

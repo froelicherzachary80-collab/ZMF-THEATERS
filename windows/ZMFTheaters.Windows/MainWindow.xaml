@@ -1,0 +1,183 @@
+<Window x:Class="ZMFTheaters.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="ZMF THEATERS+" Width="1280" Height="800" MinWidth="980" MinHeight="620"
+        Background="{StaticResource BgBrush}" WindowStartupLocation="CenterScreen"
+        Icon="Assets/zmf.png" Loaded="OnLoaded">
+    <Window.Resources>
+        <DataTemplate x:Key="PosterCard">
+            <Button Tag="{Binding}" Click="OnEntryClick" Width="168" Margin="8" Padding="0" Background="Transparent" BorderBrush="Transparent">
+                <StackPanel Width="160">
+                    <Border CornerRadius="8" Height="240" Background="#2A1420" ClipToBounds="True">
+                        <Grid>
+                            <TextBlock Text="{Binding Title}" TextWrapping="Wrap" Margin="10" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
+                            <Image Source="{Binding PosterUrl}" Stretch="UniformToFill"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="2,6,2,0"/>
+                    <TextBlock Text="{Binding Meta}" Foreground="{StaticResource DimTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis" Margin="2,0"/>
+                </StackPanel>
+            </Button>
+        </DataTemplate>
+    </Window.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="230"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Navigation -->
+        <Border Grid.Column="0" Grid.RowSpan="2" Background="{StaticResource PanelBrush}">
+            <StackPanel Margin="10,18">
+                <StackPanel Orientation="Horizontal" Margin="8,0,0,18">
+                    <Image Source="Assets/zmf.png" Width="44" Height="44"/>
+                    <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                        <TextBlock Text="ZMF" FontSize="22" FontWeight="Black" Foreground="{StaticResource GoldBrush}"/>
+                        <TextBlock Text="THEATERS+" FontSize="13" FontWeight="Bold"/>
+                    </StackPanel>
+                </StackPanel>
+                <Button Style="{StaticResource NavButton}" Content="🎬  Now Showing" Click="OnNav" Tag="Now"/>
+                <Button Style="{StaticResource NavButton}" Content="🎞  Movies" Click="OnNav" Tag="Movies"/>
+                <Button Style="{StaticResource NavButton}" Content="📺  TV Shows" Click="OnNav" Tag="Shows"/>
+                <Button Style="{StaticResource NavButton}" Content="👥  Watch Parties" Click="OnNav" Tag="Parties"/>
+                <Button Style="{StaticResource NavButton}" Content="🖥  Servers" Click="OnNav" Tag="Servers"/>
+                <TextBlock Text="Private cinema for your own Jellyfin libraries. Watch together with friends via SyncPlay."
+                           TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}" FontSize="11" Margin="12,24,12,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Now Showing -->
+        <Grid x:Name="NowPanel" Grid.Column="1" Margin="22,18,18,0">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <StackPanel>
+                <TextBlock Text="NOW SHOWING" FontSize="26" FontWeight="Black" Foreground="{StaticResource GoldBrush}"/>
+                <TextBlock x:Name="ProgrammeText" Foreground="{StaticResource DimTextBrush}" Margin="0,2,0,10"/>
+            </StackPanel>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="NowList">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Tag="{Binding Film}" Click="OnEntryClick" Width="188" Margin="8" Padding="0" Background="Transparent" BorderBrush="Transparent">
+                                <StackPanel Width="180">
+                                    <TextBlock Text="{Binding RoomTitle}" FontSize="10" FontWeight="Bold" Foreground="{Binding Accent}" TextTrimming="CharacterEllipsis" Margin="2,0,2,4"/>
+                                    <Border CornerRadius="8" Height="260" Background="#2A1420" ClipToBounds="True" BorderBrush="{Binding Accent}" BorderThickness="2">
+                                        <Grid>
+                                            <TextBlock Text="{Binding FilmTitle}" TextWrapping="Wrap" Margin="10" FontWeight="Bold" VerticalAlignment="Center" TextAlignment="Center"/>
+                                            <Image Source="{Binding PosterUrl}" Stretch="UniformToFill"/>
+                                        </Grid>
+                                    </Border>
+                                    <TextBlock Text="{Binding FilmTitle}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Margin="2,6,2,0"/>
+                                    <TextBlock Text="{Binding Meta}" Foreground="{StaticResource DimTextBrush}" FontSize="11" Margin="2,0"/>
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Library (movies / TV) -->
+        <Grid x:Name="LibraryPanel" Grid.Column="1" Margin="22,18,18,0" Visibility="Collapsed">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <DockPanel>
+                <TextBlock x:Name="LibraryTitle" Text="MOVIES" FontSize="26" FontWeight="Black" Foreground="{StaticResource GoldBrush}" DockPanel.Dock="Left"/>
+                <TextBox x:Name="SearchBox" Width="280" HorizontalAlignment="Right" TextChanged="OnSearch" ToolTip="Search your libraries"/>
+            </DockPanel>
+            <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0">
+                <ItemsControl x:Name="LibraryList" ItemTemplate="{StaticResource PosterCard}">
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+
+        <!-- Watch parties -->
+        <Grid x:Name="PartyPanel" Grid.Column="1" Margin="22,18,18,0" Visibility="Collapsed">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <StackPanel>
+                <TextBlock Text="WATCH PARTIES" FontSize="26" FontWeight="Black" Foreground="{StaticResource GoldBrush}"/>
+                <TextBlock x:Name="PartyStatus" Text="Not in a watch party" Foreground="{StaticResource DimTextBrush}" Margin="0,2,0,10"/>
+                <StackPanel Orientation="Horizontal">
+                    <Button Content="↻  Refresh" Click="OnRefreshParties"/>
+                    <Button x:Name="LeaveButton" Content="Leave party" Click="OnLeaveParty" IsEnabled="False"/>
+                </StackPanel>
+            </StackPanel>
+            <ListBox x:Name="PartyList" Grid.Row="1" Background="{StaticResource PanelBrush}" BorderThickness="0" Margin="0,10">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <DockPanel Margin="6" Width="640">
+                            <Button Content="Join" Style="{StaticResource GoldButton}" Tag="{Binding}" Click="OnJoinParty" DockPanel.Dock="Right"/>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Name}" FontWeight="Bold" FontSize="15"/>
+                                <TextBlock Text="{Binding Summary}" Foreground="{StaticResource DimTextBrush}"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Grid.Row="2" TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}" Margin="0,0,0,12"
+                       Text="Parties use Jellyfin SyncPlay on the host's server. To join a friend: sign in to their Jellyfin server (Servers tab) with the account they made for you, then press Join. To host: open any film and choose 'Host watch party'. Friends on iPhone (ZMF THEATERS+) or any official Jellyfin app can join the same party."/>
+        </Grid>
+
+        <!-- Servers -->
+        <Grid x:Name="ServersPanel" Grid.Column="1" Margin="22,18,18,0" Visibility="Collapsed">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="340"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="SERVERS" FontSize="26" FontWeight="Black" Foreground="{StaticResource GoldBrush}"/>
+                <TextBlock Text="Tokens are encrypted with Windows DPAPI and only sent to the server that issued them." Foreground="{StaticResource DimTextBrush}" Margin="0,2,0,10" TextWrapping="Wrap"/>
+                <ListBox x:Name="ServerList" Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}" BorderThickness="0" MinHeight="200"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6">
+                    <Button Content="Sync libraries" Click="OnSync"/>
+                    <Button Content="Remove selected" Click="OnRemoveServer"/>
+                </StackPanel>
+            </StackPanel>
+            <Border Grid.Column="1" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16" Margin="16,48,0,0" VerticalAlignment="Top">
+                <StackPanel>
+                    <TextBlock Text="Add Jellyfin server" FontSize="17" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <TextBlock Text="Display name" Foreground="{StaticResource DimTextBrush}"/>
+                    <TextBox x:Name="NameBox"/>
+                    <TextBlock Text="Server URL (https://…)" Foreground="{StaticResource DimTextBrush}"/>
+                    <TextBox x:Name="UrlBox"/>
+                    <TextBlock Text="Username" Foreground="{StaticResource DimTextBrush}"/>
+                    <TextBox x:Name="UserBox"/>
+                    <TextBlock Text="Password" Foreground="{StaticResource DimTextBrush}"/>
+                    <PasswordBox x:Name="PassBox"/>
+                    <Button x:Name="ConnectButton" Content="Test &amp; Connect" Style="{StaticResource GoldButton}" Click="OnConnect" Margin="0,12,0,0"/>
+                    <TextBlock x:Name="ConnectStatus" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Detail overlay -->
+        <Grid x:Name="DetailOverlay" Grid.Column="1" Background="#E6000000" Visibility="Collapsed">
+            <Border Background="{StaticResource PanelBrush}" CornerRadius="14" Padding="22" MaxWidth="820" VerticalAlignment="Center" Margin="30">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Image x:Name="DetailPoster" Height="300" Stretch="UniformToFill" VerticalAlignment="Top"/>
+                    <StackPanel Grid.Column="1" Margin="20,0,0,0">
+                        <TextBlock x:Name="DetailTitle" FontSize="24" FontWeight="Black" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="DetailMeta" Foreground="{StaticResource DimTextBrush}" Margin="0,4"/>
+                        <TextBlock x:Name="DetailRoom" Foreground="{StaticResource GoldBrush}" FontWeight="Bold" Margin="0,4"/>
+                        <TextBlock x:Name="DetailOverview" TextWrapping="Wrap" Margin="0,8" MaxHeight="150"/>
+                        <ListBox x:Name="EpisodeList" Background="#140A0E" Foreground="{StaticResource TextBrush}" BorderThickness="0" MaxHeight="190" Visibility="Collapsed" DisplayMemberPath="DisplayTitle"/>
+                        <WrapPanel Margin="0,10,0,0">
+                            <Button x:Name="WatchButton" Content="▶  Watch in the theater" Style="{StaticResource GoldButton}" Click="OnWatch"/>
+                            <Button x:Name="HostButton" Content="👥  Host watch party" Click="OnHost"/>
+                            <Button Content="Close" Click="OnCloseDetail"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- Status bar -->
+        <Border Grid.Row="1" Grid.Column="1" Background="#120A0D" Padding="12,6">
+            <TextBlock x:Name="StatusText" Foreground="{StaticResource DimTextBrush}" Text="Ready"/>
+        </Border>
+    </Grid>
+</Window>

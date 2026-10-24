@@ -1,0 +1,72 @@
+name: Windows app
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build ZMFTheaters.exe
+    runs-on: windows-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish single-file exe
+        run: >
+          dotnet publish windows/ZMFTheaters.Windows/ZMFTheaters.Windows.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true -o out/single
+
+      - name: Publish portable folder
+        run: >
+          dotnet publish windows/ZMFTheaters.Windows/ZMFTheaters.Windows.csproj -c Release -r win-x64 --self-contained true
+          -o out/ZMFTheaters-Windows
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path out/ZMFTheaters-Windows/* -DestinationPath ZMFTheaters-Windows-x64.zip
+          Copy-Item out/single/ZMFTheaters.exe ZMFTheaters.exe
+          Get-Item ZMFTheaters.exe, ZMFTheaters-Windows-x64.zip | Format-Table Name, Length
+
+      - name: Smoke test (app starts and stays up)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "out/ZMFTheaters-Windows/ZMFTheaters.exe" -PassThru
+          Start-Sleep -Seconds 12
+          if ($p.HasExited) { Write-Error "ZMFTheaters.exe exited early with code $($p.ExitCode)"; exit 1 }
+          Write-Host "App is running (pid $($p.Id))"
+          Stop-Process -Id $p.Id -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZMFTheaters-Windows
+          path: |
+            ZMFTheaters.exe
+            ZMFTheaters-Windows-x64.zip
+
+      - name: Attach to the preview release
+        if: github.event_name != 'pull_request'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v0.2.0-preview
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
+            --title "ZMF THEATERS+ v0.2 preview" --notes "iPhone IPA and Windows app builds from CI."
+          gh release upload "$TAG" ZMFTheaters.exe ZMFTheaters-Windows-x64.zip --clobber

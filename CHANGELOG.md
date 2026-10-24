@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.0: Immersion, watch parties and Windows (2026-10-24)
+
+### Added
+- **Cinema-mode controls (iPhone):** while seated during a screening, the controls fade away after a few seconds. Tap the screen, or the small corner button, to bring them back. Subtitles stay visible. Can be turned off in Admin → Graphics & Controls.
+- **HDR rendering pipeline:** an rgba16Float scene target, quarter-resolution bloom with a separable blur, ACES tone mapping, vignette and film grain.
+- **Projector beam:** a beam from a projection booth with a real lens, tinted by the picture, with drifting dust motes.
+- **More detail in every auditorium:** a curved screen, acoustic wall panels, headrests, lit cupholders and under-seat LEDs.
+- **Seated feel:** subtle breathing sway, an adjustable seated field of view, and your popcorn and drink on the armrest.
+- **Online watch parties via Jellyfin SyncPlay:** host or join, NTP-style server clock sync, drift correction, a party activity feed, and friends drawn as seated avatars with name tags.
+- **ZMF THEATERS+ for Windows 10/11** (`ZMFTheaters.exe`): a native WPF app with LibVLC playback (no transcoding needed). It has multi-server sign-in with DPAPI-encrypted tokens, Now Showing using the same rotation rules, a Movies and TV library, a theater window with curtains, a screen glow, seat rows, dimming house lights, a preshow and auto-hiding controls, and watch parties that sync with the iPhone app.
+- CI publishes the IPA and the Windows builds to a GitHub prerelease (`v0.2.0-preview`).
+
+### Changed
+- Saved settings are merged with new defaults, so upgrades never reset your configuration.
+- The rotation orders the catalog by Jellyfin item id, so iPhone and Windows pick the same Now Showing films from the same server.
+
 ## 0.1.0: Native Cinema Foundation (2026-10-24)
 
 ### Added

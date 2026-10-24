@@ -1,0 +1,78 @@
+<Application x:Class="ZMFTheaters.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             StartupUri="MainWindow.xaml">
+    <Application.Resources>
+        <SolidColorBrush x:Key="BgBrush" Color="#0B0507"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#1C0E14"/>
+        <SolidColorBrush x:Key="PanelHiBrush" Color="#2E1620"/>
+        <SolidColorBrush x:Key="GoldBrush" Color="#FFC84B"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#F4EDE8"/>
+        <SolidColorBrush x:Key="DimTextBrush" Color="#A8948F"/>
+
+        <Style TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontFamily" Value="Segoe UI"/>
+        </Style>
+
+        <Style x:Key="ZButton" TargetType="Button">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Background" Value="{StaticResource PanelHiBrush}"/>
+            <Setter Property="BorderBrush" Value="#55FFC84B"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Margin" Value="4"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="#4A2230"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource GoldBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="Button" BasedOn="{StaticResource ZButton}"/>
+
+        <Style x:Key="GoldButton" TargetType="Button" BasedOn="{StaticResource ZButton}">
+            <Setter Property="Background" Value="#E0A43A"/>
+            <Setter Property="Foreground" Value="#1A0A00"/>
+        </Style>
+
+        <Style x:Key="NavButton" TargetType="Button" BasedOn="{StaticResource ZButton}">
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Margin" Value="6,2"/>
+        </Style>
+
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#140A0E"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="#553A40"/>
+            <Setter Property="CaretBrush" Value="{StaticResource GoldBrush}"/>
+            <Setter Property="Padding" Value="6,5"/>
+            <Setter Property="Margin" Value="0,3"/>
+        </Style>
+        <Style TargetType="PasswordBox">
+            <Setter Property="Background" Value="#140A0E"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="#553A40"/>
+            <Setter Property="CaretBrush" Value="{StaticResource GoldBrush}"/>
+            <Setter Property="Padding" Value="6,5"/>
+            <Setter Property="Margin" Value="0,3"/>
+        </Style>
+    </Application.Resources>
+</Application>

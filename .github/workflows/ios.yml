@@ -115,7 +115,7 @@ jobs:
           sleep 20
           xcrun simctl terminate "$UDID" com.zmf.theatersplus || true
           sleep 2
-          for shot in lobby hall room seat; do
+          for shot in lobby hall room seat seatleft; do
             xcrun simctl launch "$UDID" com.zmf.theatersplus -zmfShot $shot -zmfDemoParty
             sleep 10
             xcrun simctl io "$UDID" screenshot "shots/$shot.png"
@@ -147,6 +147,8 @@ jobs:
     name: Build IPA
     runs-on: macos-15
     timeout-minutes: 40
+    permissions:
+      contents: write
     env:
       BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
       P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
@@ -231,3 +233,14 @@ jobs:
         with:
           name: build-log
           path: build.log
+
+      - name: Attach IPA to the preview release
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=v0.2.0-preview
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
+            --title "ZMF THEATERS+ v0.2 preview" --notes "iPhone IPA and Windows app builds from CI."
+          gh release upload "$TAG" ZMFTheaters-unsigned.ipa --clobber
+          if ls signed/*.ipa >/dev/null 2>&1; then gh release upload "$TAG" signed/*.ipa --clobber; fi
