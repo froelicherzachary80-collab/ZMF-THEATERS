@@ -229,7 +229,7 @@ enum WorldGeometry {
                 b.box(Vec3(x + 0.3, fl + 0.4, z - 0.42), Vec3(x + 0.52, fl + 1.2, z + 0.42), color: col, mat: .lit(rough: 0.8))
                 b.box(Vec3(x - 0.35, fl + 0.3, z - 0.52), Vec3(x + 0.45, fl + 0.75, z - 0.42), color: frame, mat: .lit(rough: 0.4))
                 // Seat number plaque on the back, readable from the row behind.
-                b.sign(center: Vec3(x + 0.53, fl + 1.0, z), normal: Vec3(1, 0, 0), width: 0.28, height: 0.2, mat: .glowTex("num.\(s)", 1.0))
+                b.sign(center: Vec3(x + 0.53, fl + 1.08, z), normal: Vec3(1, 0, 0), width: 0.15, height: 0.11, mat: .glowTex("num.\(s)", 0.55))
             }
             let zEnd = CinemaWorld.seatZ(7) + 0.52
             b.box(Vec3(x - 0.35, fl + 0.3, zEnd - 0.1), Vec3(x + 0.45, fl + 0.75, zEnd), color: frame, mat: .lit(rough: 0.4))

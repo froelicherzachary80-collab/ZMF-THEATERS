@@ -110,6 +110,11 @@ jobs:
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl install "$UDID" build/Build/Products/Debug-iphonesimulator/ZMFTheaters.app
           mkdir -p shots
+          # Warm-up launch so first-run shader compilation doesn't blank the first shot.
+          xcrun simctl launch "$UDID" com.zmf.theatersplus -zmfShot lobby
+          sleep 20
+          xcrun simctl terminate "$UDID" com.zmf.theatersplus || true
+          sleep 2
           for shot in lobby hall room seat; do
             xcrun simctl launch "$UDID" com.zmf.theatersplus -zmfShot $shot
             sleep 10
