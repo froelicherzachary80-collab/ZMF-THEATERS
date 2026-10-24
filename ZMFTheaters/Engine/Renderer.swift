@@ -39,15 +39,25 @@ final class Renderer {
     let device: MTLDevice
     private let queue: MTLCommandQueue
     private let pipeline: MTLRenderPipelineState
+    private let beamPipeline: MTLRenderPipelineState
+    private let prefilterPipeline: MTLRenderPipelineState
+    private let blurPipeline: MTLRenderPipelineState
+    private let compositePipeline: MTLRenderPipelineState
     private let averagePipeline: MTLComputePipelineState
     private let depthState: MTLDepthStencilState
+    private let depthReadState: MTLDepthStencilState
     private var depthTexture: MTLTexture?
+    private var hdrTexture: MTLTexture?
+    private var bloomA: MTLTexture?
+    private var bloomB: MTLTexture?
     private var textureCache: CVMetalTextureCache?
     private let inflight = DispatchSemaphore(value: 3)
     let factory: TextureFactory
 
     private var lobbyBatches: [Batch] = []
     private var roomBatches: [Int: [Batch]] = [:]
+    private var beamBatches: [Int: Batch] = [:]
+    private let quad: MTLBuffer
     private let cube: MTLBuffer
     private let cubeCount: Int
     private let lights = CinemaWorld.buildLights()
@@ -71,6 +81,10 @@ final class Renderer {
     weak var session: TheaterSession?
     var settings = AppSettings()
     var thermalThrottle = false
+    /// Names of friends in the current watch party (shown seated beside you).
+    var partyGuests: [String] = []
+    /// Snacks you're carrying appear on your armrest while seated.
+    var carrying: (food: Bool, drink: Bool) = (false, false)
 
     init?() {
         guard let device = MTLCreateSystemDefaultDevice(),
@@ -93,7 +107,7 @@ final class Renderer {
         pd.vertexFunction = library.makeFunction(name: "cinema_vertex")
         pd.fragmentFunction = library.makeFunction(name: "cinema_fragment")
         pd.vertexDescriptor = vd
-        pd.colorAttachments[0].pixelFormat = .bgra8Unorm_srgb
+        pd.colorAttachments[0].pixelFormat = .rgba16Float
         pd.depthAttachmentPixelFormat = .depth32Float
         guard let pipeline = try? device.makeRenderPipelineState(descriptor: pd),
               let avgFn = library.makeFunction(name: "screen_average"),
@@ -101,17 +115,53 @@ final class Renderer {
         self.pipeline = pipeline
         self.averagePipeline = avg
 
+        // Additive light volume for the projector beam.
+        pd.label = "ZMF Projector Beam"
+        pd.fragmentFunction = library.makeFunction(name: "beam_fragment")
+        pd.colorAttachments[0].isBlendingEnabled = true
+        pd.colorAttachments[0].rgbBlendOperation = .add
+        pd.colorAttachments[0].sourceRGBBlendFactor = .one
+        pd.colorAttachments[0].destinationRGBBlendFactor = .one
+        pd.colorAttachments[0].alphaBlendOperation = .add
+        pd.colorAttachments[0].sourceAlphaBlendFactor = .zero
+        pd.colorAttachments[0].destinationAlphaBlendFactor = .one
+        guard let beam = try? device.makeRenderPipelineState(descriptor: pd) else { return nil }
+        beamPipeline = beam
+
+        func post(_ fragment: String, _ format: MTLPixelFormat) -> MTLRenderPipelineState? {
+            let d = MTLRenderPipelineDescriptor()
+            d.label = fragment
+            d.vertexFunction = library.makeFunction(name: "post_vertex")
+            d.fragmentFunction = library.makeFunction(name: fragment)
+            d.colorAttachments[0].pixelFormat = format
+            return try? device.makeRenderPipelineState(descriptor: d)
+        }
+        guard let pre = post("bloom_prefilter", .rgba16Float),
+              let blur = post("bloom_blur", .rgba16Float),
+              let comp = post("composite", .bgra8Unorm_srgb) else { return nil }
+        prefilterPipeline = pre
+        blurPipeline = blur
+        compositePipeline = comp
+
         let dd = MTLDepthStencilDescriptor()
         dd.depthCompareFunction = .less
         dd.isDepthWriteEnabled = true
         guard let ds = device.makeDepthStencilState(descriptor: dd) else { return nil }
         depthState = ds
+        dd.isDepthWriteEnabled = false
+        guard let dr = device.makeDepthStencilState(descriptor: dd) else { return nil }
+        depthReadState = dr
 
         let cubeVerts = WorldGeometry.unitCube()
-        guard let cb = device.makeBuffer(bytes: cubeVerts, length: cubeVerts.count * MemoryLayout<Vertex>.stride, options: .storageModeShared),
+        let qb = MeshBuilder()
+        qb.quad(Vec3(-0.5, -0.5, 0), Vec3(0.5, -0.5, 0), Vec3(0.5, 0.5, 0), Vec3(-0.5, 0.5, 0), normal: Vec3(0, 0, 1), color: Vec4(1, 1, 1, 1), mat: .lit())
+        let quadVerts = qb.batches.values.first ?? []
+        guard let qbuf = device.makeBuffer(bytes: quadVerts, length: quadVerts.count * MemoryLayout<Vertex>.stride, options: .storageModeShared),
+              let cb = device.makeBuffer(bytes: cubeVerts, length: cubeVerts.count * MemoryLayout<Vertex>.stride, options: .storageModeShared),
               let avgBuf = device.makeBuffer(length: MemoryLayout<Vec4>.stride, options: .storageModeShared),
               let w = factory.solid(Vec4(1, 1, 1, 1)),
               let b = factory.solid(Vec4(0, 0, 0, 1)) else { return nil }
+        quad = qbuf
         cube = cb
         cubeCount = cubeVerts.count
         screenAverage = avgBuf
@@ -141,6 +191,9 @@ final class Renderer {
             let b = MeshBuilder()
             WorldGeometry.buildRoom(room, b)
             roomBatches[room.id] = upload(b)
+            let beam = MeshBuilder()
+            WorldGeometry.projectorBeam(room, beam)
+            beamBatches[room.id] = upload(beam).first
         }
     }
 
@@ -179,11 +232,22 @@ final class Renderer {
         let size = layer.drawableSize
         guard size.width > 0, size.height > 0 else { return }
         if depthTexture == nil || depthTexture!.width != Int(size.width) || depthTexture!.height != Int(size.height) {
-            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: Int(size.width), height: Int(size.height), mipmapped: false)
+            let w = Int(size.width), h = Int(size.height)
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .depth32Float, width: w, height: h, mipmapped: false)
             d.usage = .renderTarget
             d.storageMode = .memoryless
             depthTexture = device.makeTexture(descriptor: d)
+            let hd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: w, height: h, mipmapped: false)
+            hd.usage = [.renderTarget, .shaderRead]
+            hd.storageMode = .private
+            hdrTexture = device.makeTexture(descriptor: hd)
+            let bd = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: max(1, w / 4), height: max(1, h / 4), mipmapped: false)
+            bd.usage = [.renderTarget, .shaderRead]
+            bd.storageMode = .private
+            bloomA = device.makeTexture(descriptor: bd)
+            bloomB = device.makeTexture(descriptor: bd)
         }
+        guard let hdr = hdrTexture, let bloomA, let bloomB else { return }
 
         inflight.wait()
         guard let drawable = layer.nextDrawable(), let cmd = queue.makeCommandBuffer() else {
@@ -207,7 +271,8 @@ final class Renderer {
 
         let cam = game.camera()
         let aspect = Float(size.width / size.height)
-        let proj = Mat4.perspective(fovyRadians: game.isSeated ? 0.95 : 1.1, aspect: aspect, near: 0.05, far: 160)
+        let seatedFov = Float(settings.seatedFieldOfView) * .pi / 180
+        let proj = Mat4.perspective(fovyRadians: game.isSeated ? seatedFov : 1.1, aspect: aspect, near: 0.05, far: 160)
         let view = Mat4.lookAt(eye: cam.eye, target: cam.target, up: Vec3(0, 1, 0))
 
         // Visibility: lobby/hall always; an auditorium when inside it or when its door is open nearby.
@@ -259,7 +324,7 @@ final class Renderer {
         if lightData.isEmpty { lightData = [.zero, .zero] }
 
         let pass = MTLRenderPassDescriptor()
-        pass.colorAttachments[0].texture = drawable.texture
+        pass.colorAttachments[0].texture = hdr
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].storeAction = .store
         pass.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
@@ -286,11 +351,48 @@ final class Renderer {
         for id in visibleRooms {
             drawBatches(roomBatches[id] ?? [], enc: enc, roomId: id, activeRoom: activeRoom, activeScreen: activeScreen)
         }
-        drawDynamic(enc: enc, game: game, visibleRooms: visibleRooms)
+        drawDynamic(enc: enc, game: game, visibleRooms: visibleRooms, activeRoom: activeRoom, cam: cam.eye)
 
+        // Projector beam through the haze, only while something is on screen.
+        if settings.projectorBeam, let id = activeRoom, activeScreen != nil, visibleRooms.contains(id), let beam = beamBatches[id] {
+            var u = DrawUniforms(model: matrix_identity_float4x4, baseColor: Vec4(1, 1, 1, 1), emissive: Vec4(0, 0, 0, 1), params: Vec4(1, 0, 7, 0))
+            enc.setRenderPipelineState(beamPipeline)
+            enc.setDepthStencilState(depthReadState)
+            enc.setVertexBuffer(beam.buffer, offset: 0, index: 0)
+            enc.setVertexBytes(&u, length: MemoryLayout<DrawUniforms>.stride, index: 2)
+            enc.setFragmentBytes(&u, length: MemoryLayout<DrawUniforms>.stride, index: 2)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: beam.count)
+        }
         enc.endEncoding()
+
+        // Bloom: bright-pass at quarter resolution, then a separable blur.
+        let bloomOn = settings.bloomStrength > 0.01
+        if bloomOn {
+            var pre = Vec4(1.0, 0, 1 / Float(hdr.width) * 2, 1 / Float(hdr.height) * 2)
+            postPass(cmd, target: bloomA, pipeline: prefilterPipeline, textures: [hdr], params: &pre)
+            var h = Vec4(1 / Float(bloomA.width), 0, 0, 0)
+            postPass(cmd, target: bloomB, pipeline: blurPipeline, textures: [bloomA], params: &h)
+            var v = Vec4(0, 1 / Float(bloomA.height), 0, 0)
+            postPass(cmd, target: bloomA, pipeline: blurPipeline, textures: [bloomB], params: &v)
+        }
+        var comp = Vec4(bloomOn ? Float(settings.bloomStrength) : 0, settings.filmGrain ? 0.018 : 0, game.time.truncatingRemainder(dividingBy: 100), 0.35)
+        postPass(cmd, target: drawable.texture, pipeline: compositePipeline, textures: [hdr, bloomOn ? bloomA : black], params: &comp)
+
         cmd.present(drawable)
         cmd.commit()
+    }
+
+    private func postPass(_ cmd: MTLCommandBuffer, target: MTLTexture, pipeline: MTLRenderPipelineState, textures: [MTLTexture], params: inout Vec4) {
+        let pass = MTLRenderPassDescriptor()
+        pass.colorAttachments[0].texture = target
+        pass.colorAttachments[0].loadAction = .dontCare
+        pass.colorAttachments[0].storeAction = .store
+        guard let enc = cmd.makeRenderCommandEncoder(descriptor: pass) else { return }
+        enc.setRenderPipelineState(pipeline)
+        for (i, t) in textures.enumerated() { enc.setFragmentTexture(t, index: i) }
+        enc.setFragmentBytes(&params, length: MemoryLayout<Vec4>.stride, index: 0)
+        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+        enc.endEncoding()
     }
 
     private func drawBatches(_ batches: [Batch], enc: MTLRenderCommandEncoder, roomId: Int?, activeRoom: Int?, activeScreen: MTLTexture?) {
@@ -344,7 +446,67 @@ final class Renderer {
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: cubeCount)
     }
 
-    private func drawDynamic(enc: MTLRenderCommandEncoder, game: CinemaGame, visibleRooms: [Int]) {
+    private func drawTag(_ enc: MTLRenderCommandEncoder, at p: Vec3, cam: Vec3, texture: MTLTexture) {
+        let a = atan2f(cam.x - p.x, cam.z - p.z)
+        var u = DrawUniforms(model: Mat4.translation(p) * Mat4.rotationY(a) * Mat4.scale(Vec3(0.72, 0.18, 1)),
+                             baseColor: Vec4(1, 1, 1, 1), emissive: Vec4(0, 0, 0, 1.4),
+                             params: Vec4(1, 0, Float(ShadingMode.emissiveTextured.rawValue), 1))
+        enc.setVertexBuffer(quad, offset: 0, index: 0)
+        enc.setVertexBytes(&u, length: MemoryLayout<DrawUniforms>.stride, index: 2)
+        enc.setFragmentBytes(&u, length: MemoryLayout<DrawUniforms>.stride, index: 2)
+        enc.setFragmentTexture(texture, index: 0)
+        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+    }
+
+    private static func color(for name: String) -> Vec4 {
+        var h: UInt32 = 2166136261
+        for b in name.utf8 { h = (h ^ UInt32(b)) &* 16777619 }
+        let palette: [Vec4] = [Vec4(0.8, 0.15, 0.2, 1), Vec4(0.15, 0.45, 0.85, 1), Vec4(0.2, 0.7, 0.35, 1),
+                               Vec4(0.85, 0.6, 0.15, 1), Vec4(0.55, 0.25, 0.8, 1), Vec4(0.1, 0.7, 0.75, 1)]
+        return palette[Int(h % UInt32(palette.count))]
+    }
+
+    /// A seated moviegoer facing the screen of `room`.
+    private func drawSeatedFigure(_ enc: MTLRenderCommandEncoder, room: Int, row: Int, seat: Int, shirt: Vec4, skin: Vec4) {
+        let base = Mat4.translation(CinemaWorld.seatPosition(room: room, row: row, seat: seat)) * Mat4.rotationY(CinemaWorld.screenYaw(room))
+        drawCube(enc, model: base * Mat4.translation(Vec3(0, 0.88, -0.12)) * Mat4.scale(Vec3(0.44, 0.58, 0.26)), color: shirt, rough: 0.8)
+        drawCube(enc, model: base * Mat4.translation(Vec3(0, 1.3, -0.1)) * Mat4.scale(Vec3(0.22, 0.26, 0.24)), color: skin, rough: 0.7)
+        drawCube(enc, model: base * Mat4.translation(Vec3(0, 1.45, -0.12)) * Mat4.scale(Vec3(0.24, 0.07, 0.26)), color: Vec4(0.12, 0.08, 0.06, 1), rough: 0.9)
+        drawCube(enc, model: base * Mat4.translation(Vec3(0, 0.6, 0.2)) * Mat4.scale(Vec3(0.4, 0.16, 0.5)), color: Vec4(0.15, 0.17, 0.25, 1), rough: 0.9)
+        drawCube(enc, model: base * Mat4.translation(Vec3(0.26, 0.82, 0.08)) * Mat4.scale(Vec3(0.1, 0.1, 0.4)), color: shirt, rough: 0.8)
+        drawCube(enc, model: base * Mat4.translation(Vec3(-0.26, 0.82, 0.08)) * Mat4.scale(Vec3(0.1, 0.1, 0.4)), color: shirt, rough: 0.8)
+    }
+
+    private func drawDynamic(enc: MTLRenderCommandEncoder, game: CinemaGame, visibleRooms: [Int], activeRoom: Int?, cam: Vec3) {
+        // Friends from the watch party sit next to you.
+        if let s = game.seatedAt, s.room == activeRoom, visibleRooms.contains(s.room), !partyGuests.isEmpty {
+            let order = [1, -1, 2, -2, 3, -3, 4, -4].map { s.seat + $0 }.filter { (0..<Seating.seatsPerRow).contains($0) }
+            for (i, name) in partyGuests.prefix(order.count).enumerated() {
+                let seat = order[i]
+                drawSeatedFigure(enc, room: s.room, row: s.row, seat: seat, shirt: Self.color(for: name), skin: Vec4(0.8, 0.62, 0.5, 1))
+                if let tag = textures["party.name.\(i)"] {
+                    drawTag(enc, at: CinemaWorld.seatPosition(room: s.room, row: s.row, seat: seat) + Vec3(0, 1.78, 0), cam: cam, texture: tag)
+                }
+            }
+        }
+        // Snacks on your armrest.
+        if let s = game.seatedAt, carrying.food || carrying.drink {
+            let t = CinemaWorld.transform(room: s.room)
+            let fl = CinemaWorld.rowFloor(s.row)
+            let x = CinemaWorld.rowX(s.row), z = CinemaWorld.seatZ(s.seat)
+            if carrying.drink {
+                let p = t.point(Vec3(x - 0.22, fl + 0.86, z - 0.47))
+                drawCube(enc, model: Mat4.translation(p) * Mat4.scale(Vec3(0.08, 0.2, 0.08)), color: Vec4(0.85, 0.1, 0.12, 1), rough: 0.4)
+                drawCube(enc, model: Mat4.translation(p + Vec3(0, 0.14, 0)) * Mat4.scale(Vec3(0.012, 0.12, 0.012)), color: Vec4(1, 1, 1, 1), rough: 0.4)
+            }
+            if carrying.food {
+                let p = t.point(Vec3(x + 0.1, fl + 0.88, z - 0.47))
+                drawCube(enc, model: Mat4.translation(p) * Mat4.scale(Vec3(0.16, 0.22, 0.16)), color: Vec4(0.9, 0.9, 0.88, 1), rough: 0.6)
+                drawCube(enc, model: Mat4.translation(p + Vec3(0, 0.002, 0)) * Mat4.scale(Vec3(0.165, 0.06, 0.165)), color: Vec4(0.8, 0.08, 0.1, 1), rough: 0.6)
+                drawCube(enc, model: Mat4.translation(p + Vec3(0, 0.13, 0)) * Mat4.scale(Vec3(0.15, 0.06, 0.15)), color: Vec4(1, 0.88, 0.5, 1), rough: 0.9)
+            }
+        }
+
         let zone = game.zone
         let nearHall: Bool = { if case .lobby = zone { return game.position.z > 14 } ; return true }()
         if nearHall {

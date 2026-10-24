@@ -186,7 +186,7 @@ enum WorldGeometry {
         b.box(Vec3(0.05, -1.75, 0.6), Vec3(0.3, 4.15, W - 0.6), color: rgb(0.01, 0.01, 0.01))
         b.box(Vec3(0.3, yMin, 0.1), Vec3(0.8, 5.0, 0.95), color: rgb(t.accent, 0.35), mat: .lit(rough: 1))
         b.box(Vec3(0.3, yMin, W - 0.95), Vec3(0.8, 5.0, W - 0.1), color: rgb(t.accent, 0.35), mat: .lit(rough: 1))
-        b.sign(center: Vec3(0.35, 1.2, 7), normal: Vec3(1, 0, 0), width: CinemaWorld.screenSize.x, height: CinemaWorld.screenSize.y, mat: .screen("screen.\(room.id)"))
+        curvedScreen(room, b)
 
         // Wall sconces (match the light list in CinemaWorld.buildLights).
         for k in 0..<4 {
@@ -198,7 +198,17 @@ enum WorldGeometry {
 
         // Exit sign and projection-booth window.
         b.box(center: Vec3(D - 0.1, 2.95, 7), size: Vec3(0.1, 0.3, 0.9), color: rgb(0.1, 1, 0.3), mat: .glow(2))
-        b.sign(center: Vec3(D - 0.02, 5.4, 9.5), normal: Vec3(-1, 0, 0), width: 1.0, height: 0.6, color: rgb(0.9, 0.95, 1), mat: .glow(2.5))
+        // Projection booth: port window and the projector lens the beam comes from.
+        b.sign(center: Vec3(D - 0.02, 5.4, 7), normal: Vec3(-1, 0, 0), width: 1.2, height: 0.7, color: rgb(0.08, 0.09, 0.12), mat: .lit(rough: 0.15, metal: 0.2))
+        b.box(center: Vec3(D - 0.06, 5.4, 7), size: Vec3(0.12, 0.22, 0.22), color: rgb(0.9, 0.95, 1), mat: .glow(3))
+        // Acoustic wall panels for texture and depth.
+        var px: Float = 2.5
+        while px < D - 2 {
+            let g = CinemaWorld.localGround(px)
+            b.box(Vec3(px, g + 1.6, 0.0), Vec3(px + 1.8, yMax - 1.6, 0.06), color: rgb(t.wall, 0.75), mat: .lit(rough: 1))
+            b.box(Vec3(px, g + 1.6, W - 0.06), Vec3(px + 1.8, yMax - 1.6, W), color: rgb(t.wall, 0.75), mat: .lit(rough: 1))
+            px += 2.4
+        }
 
         // Row letters on both side walls.
         for r in 0..<8 {
@@ -228,12 +238,54 @@ enum WorldGeometry {
                 b.box(Vec3(x - 0.42, fl + 0.3, z - 0.42), Vec3(x + 0.35, fl + 0.52, z + 0.42), color: col, mat: .lit(rough: 0.8))
                 b.box(Vec3(x + 0.3, fl + 0.4, z - 0.42), Vec3(x + 0.52, fl + 1.2, z + 0.42), color: col, mat: .lit(rough: 0.8))
                 b.box(Vec3(x - 0.35, fl + 0.3, z - 0.52), Vec3(x + 0.45, fl + 0.75, z - 0.42), color: frame, mat: .lit(rough: 0.4))
+                // Headrest pillow, lit cupholder and a little LED under the seat.
+                b.box(Vec3(x + 0.28, fl + 1.0, z - 0.3), Vec3(x + 0.46, fl + 1.24, z + 0.3), color: rgb(t.seat, vip ? 1.0 : 0.75), mat: .lit(rough: 0.9))
+                b.box(center: Vec3(x - 0.22, fl + 0.757, z - 0.47), size: Vec3(0.1, 0.012, 0.1), color: rgb(t.accent), mat: .glow(1.6))
+                b.box(center: Vec3(x - 0.38, fl + 0.06, z), size: Vec3(0.04, 0.02, 0.6), color: rgb(t.light), mat: .glow(1.2))
                 // Seat number plaque on the back, readable from the row behind.
                 b.sign(center: Vec3(x + 0.53, fl + 1.08, z), normal: Vec3(1, 0, 0), width: 0.15, height: 0.11, mat: .glowTex("num.\(s)", 0.55))
             }
             let zEnd = CinemaWorld.seatZ(7) + 0.52
             b.box(Vec3(x - 0.35, fl + 0.3, zEnd - 0.1), Vec3(x + 0.45, fl + 0.75, zEnd), color: frame, mat: .lit(rough: 0.4))
         }
+    }
+
+    /// A gently curved screen (edges toward the audience), built from strips so
+    /// the projected image wraps naturally. Texture u runs left→right as seen
+    /// from the seats in both wings.
+    static func curvedScreen(_ room: CinemaRoom, _ b: MeshBuilder) {
+        let segments = 24
+        let halfW = CinemaWorld.screenSize.x / 2, halfH = CinemaWorld.screenSize.y / 2
+        let sag: Float = 0.35
+        let y0: Float = 1.2 - halfH, y1: Float = 1.2 + halfH
+        let mat = MaterialKey.screen("screen.\(room.id)")
+        let flip = room.id <= 6   // west wing: viewer's right is −z
+        for i in 0..<segments {
+            let t0 = -1 + 2 * Float(i) / Float(segments)
+            let t1 = -1 + 2 * Float(i + 1) / Float(segments)
+            let z0 = 7 + t0 * halfW, z1 = 7 + t1 * halfW
+            let x0 = 0.35 + sag * t0 * t0, x1 = 0.35 + sag * t1 * t1
+            let tm = (t0 + t1) / 2
+            let n = simd_normalize(Vec3(1, 0, -(2 * sag * tm) / halfW))
+            var u0 = (t0 + 1) / 2, u1 = (t1 + 1) / 2
+            if flip { u0 = 1 - u0; u1 = 1 - u1 }
+            b.quad(Vec3(x0, y0, z0), Vec3(x1, y0, z1), Vec3(x1, y1, z1), Vec3(x0, y1, z0), normal: n, color: Vec4(1, 1, 1, 1), mat: mat,
+                   uv: (Vec2(u0, 1), Vec2(u1, 1), Vec2(u1, 0), Vec2(u0, 0)))
+        }
+    }
+
+    /// Light volume from the booth lens to the four screen corners. Drawn
+    /// additively only while a screening is running in that room.
+    static func projectorBeam(_ room: CinemaRoom, _ b: MeshBuilder) {
+        b.xf = CinemaWorld.transform(room: room.id)
+        let apex = Vec3(CinemaWorld.roomDepth - 0.12, 5.4, 7)
+        let halfW = CinemaWorld.screenSize.x / 2 - 0.1, halfH = CinemaWorld.screenSize.y / 2 - 0.05
+        let c = [Vec3(0.5, 1.2 - halfH, 7 - halfW), Vec3(0.5, 1.2 - halfH, 7 + halfW), Vec3(0.5, 1.2 + halfH, 7 + halfW), Vec3(0.5, 1.2 + halfH, 7 - halfW)]
+        let mat = MaterialKey(mode: 7, texture: nil, roughness: 1, metallic: 0, emissive: 1)
+        for i in 0..<4 {
+            b.triangle(apex, c[i], c[(i + 1) % 4], uvs: (Vec2(0, 0), Vec2(1, 0), Vec2(1, 1)), color: Vec4(1, 1, 1, 1), mat: mat)
+        }
+        b.xf = .identity
     }
 
     // MARK: - Themed decoration

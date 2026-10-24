@@ -30,6 +30,21 @@ final class JSONStore {
         return try? decoder.decode(T.self, from: data)
     }
 
+    /// Loads a document and fills any keys missing from older saves with the
+    /// defaults, so adding a new setting never wipes the owner's configuration.
+    func loadMerged<T: Codable>(_ defaults: T, _ name: String) -> T {
+        let url = directory.appendingPathComponent(name + ".json")
+        guard let data = try? Data(contentsOf: url) else { return defaults }
+        if let direct = try? decoder.decode(T.self, from: data) { return direct }
+        guard let saved = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let baseData = try? encoder.encode(defaults),
+              var base = (try? JSONSerialization.jsonObject(with: baseData)) as? [String: Any] else { return defaults }
+        for (k, v) in saved where base[k] != nil { base[k] = v }
+        guard let merged = try? JSONSerialization.data(withJSONObject: base),
+              let value = try? decoder.decode(T.self, from: merged) else { return defaults }
+        return value
+    }
+
     func save<T: Encodable>(_ value: T, _ name: String) {
         let url = directory.appendingPathComponent(name + ".json")
         guard let data = try? encoder.encode(value) else { return }

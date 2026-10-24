@@ -277,6 +277,16 @@ struct GraphicsAdminView: View {
                     ForEach(GraphicsQuality.allCases) { Text($0.label).tag($0) }
                 }
                 Toggle("Atmospheric fog", isOn: $settingsStore.settings.fogEnabled)
+                Toggle("Projector beam & dust", isOn: $settingsStore.settings.projectorBeam)
+                Toggle("Film grain", isOn: $settingsStore.settings.filmGrain)
+                VStack(alignment: .leading) {
+                    Text("Bloom: \(Int(settingsStore.settings.bloomStrength * 100))%")
+                    Slider(value: $settingsStore.settings.bloomStrength, in: 0...1.5)
+                }
+                VStack(alignment: .leading) {
+                    Text("Seated field of view: \(Int(settingsStore.settings.seatedFieldOfView))° (lower = bigger screen)")
+                    Slider(value: $settingsStore.settings.seatedFieldOfView, in: 30...75)
+                }
                 VStack(alignment: .leading) {
                     Text("Screen light spill: \(Int(settingsStore.settings.screenBrightness * 100))%")
                     Slider(value: $settingsStore.settings.screenBrightness, in: 0...2)
@@ -294,6 +304,7 @@ struct GraphicsAdminView: View {
                     Slider(value: $settingsStore.settings.lookSensitivity, in: 0.3...3)
                 }
                 Toggle("Swap joystick and buttons", isOn: $settingsStore.settings.swapControls)
+                Toggle("Hide controls while watching (tap to show)", isOn: $settingsStore.settings.autoHideControls)
             }
         }
         .navigationTitle("Graphics & Controls")

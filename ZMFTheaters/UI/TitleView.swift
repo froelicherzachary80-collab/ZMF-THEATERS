@@ -6,6 +6,7 @@ struct TitleView: View {
     @EnvironmentObject var wallet: Wallet
     @State private var showServers = false
     @State private var showAdmin = false
+    @State private var showParty = false
     @State private var glow = false
 
     var body: some View {
@@ -36,6 +37,7 @@ struct TitleView: View {
 
                     HStack(spacing: 12) {
                         Button { showServers = true } label: { Label("Jellyfin Servers", systemImage: "server.rack") }
+                        Button { showParty = true } label: { Label("Watch Parties", systemImage: "person.2.fill") }
                         Button { showAdmin = true } label: { Label("Admin Center", systemImage: "slider.horizontal.3") }
                     }
                     .buttonStyle(.bordered)
@@ -47,6 +49,7 @@ struct TitleView: View {
         .onAppear { withAnimation(.easeInOut(duration: 1.6).repeatForever()) { glow = true } }
         .sheet(isPresented: $showServers) { NavigationStack { ServerManagerView() } }
         .sheet(isPresented: $showAdmin) { AdminView() }
+        .sheet(isPresented: $showParty) { WatchPartyView() }
     }
 
     private var statusCard: some View {

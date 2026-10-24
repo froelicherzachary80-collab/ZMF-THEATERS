@@ -82,6 +82,49 @@ final class TheaterSession: ObservableObject {
         runTask = Task { [weak self] in await self?.run(skipPreshow: skipPreshow) }
     }
 
+    /// Watch-party screening: no preshow, and playback is driven by SyncPlay
+    /// commands rather than started locally. `onReady` fires once the feature is
+    /// buffered and paused at the agreed start position.
+    func beginParty(ticket: Ticket, item: MediaItem, startAt: Double, library: MediaLibrary, settings: AppSettings, onReady: @escaping () -> Void) {
+        end()
+        self.ticket = ticket
+        self.item = item
+        self.library = library
+        self.settings = settings
+        startPreparing(item: item, resumeAt: startAt)
+        runTask = Task { [weak self] in await self?.runParty(onReady: onReady) }
+    }
+
+    private func runParty(onReady: @escaping () -> Void) async {
+        guard let item else { return }
+        do {
+            phase = .countdown
+            targetLights = 0.15
+            setSlide(["WATCH PARTY", "Syncing with your friends…", item.displayTitle])
+            try await prepareTask?.value
+            phase = .feature
+            targetLights = 0.03
+            onReady()
+            while true {
+                if feature.status == .ended { break }
+                if case .failed(let msg) = feature.status { throw JellyfinError(message: msg, statusCode: nil) }
+                try await sleep(0.5)
+            }
+            phase = .credits
+            targetLights = 1
+            try await sleep(6)
+            phase = .finished
+            setSlide(["THANK YOU FOR WATCHING TOGETHER", "ZMF THEATERS+", "House lights up"])
+        } catch is CancellationError {
+            return
+        } catch {
+            if Task.isCancelled { return }
+            phase = .failed(error.localizedDescription)
+            targetLights = 0.8
+            setSlide(["PLAYBACK PROBLEM", "Tap Retry to reconnect", error.localizedDescription])
+        }
+    }
+
     func skipPreshow() {
         guard [.welcome, .trailer, .ident, .countdown].contains(phase) else { return }
         runTask?.cancel()

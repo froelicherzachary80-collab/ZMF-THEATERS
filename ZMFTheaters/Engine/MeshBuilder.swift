@@ -76,6 +76,17 @@ final class MeshBuilder {
         batches[mat] = list
     }
 
+    /// Single triangle in local space (used for the projector beam volume).
+    func triangle(_ a: Vec3, _ b: Vec3, _ c: Vec3, uvs: (Vec2, Vec2, Vec2), color: Vec4, mat: MaterialKey) {
+        let pa = xf.point(a), pb = xf.point(b), pc = xf.point(c)
+        let n = simd_normalize(simd_cross(pb - pa, pc - pa))
+        var list = batches[mat] ?? []
+        list.append(Vertex(pa, n, uvs.0, color))
+        list.append(Vertex(pb, n, uvs.1, color))
+        list.append(Vertex(pc, n, uvs.2, color))
+        batches[mat] = list
+    }
+
     /// Axis-aligned box in local space with outward normals.
     func box(_ mn: Vec3, _ mx: Vec3, color: Vec4, mat: MaterialKey = .lit()) {
         let p000 = Vec3(mn.x, mn.y, mn.z), p100 = Vec3(mx.x, mn.y, mn.z)

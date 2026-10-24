@@ -66,6 +66,12 @@ struct AppSettings: Codable, Equatable {
     var joystickSize: Double = 140
     var lookSensitivity: Double = 1.0
     var swapControls = false
+    /// Hide every on-screen control while seated during a screening; tap to show.
+    var autoHideControls = true
+    var seatedFieldOfView: Double = 55
+    var bloomStrength: Double = 0.6
+    var projectorBeam = true
+    var filmGrain = true
 
     // MARK: Playback
     var maxBitrateMbps = 60
@@ -92,6 +98,6 @@ final class SettingsStore: ObservableObject {
 
     init(store: JSONStore = .shared) {
         self.store = store
-        self.settings = store.load(AppSettings.self, "settings") ?? AppSettings()
+        self.settings = store.loadMerged(AppSettings(), "settings")
     }
 }

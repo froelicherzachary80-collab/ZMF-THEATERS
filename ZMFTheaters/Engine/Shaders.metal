@@ -1,11 +1,13 @@
 #include <metal_stdlib>
 using namespace metal;
 
-// ZMF Cinema Engine — forward renderer.
+// ZMF Cinema Engine — HDR forward renderer.
 // Physically based shading (Lambert diffuse + GGX specular with Schlick
 // Fresnel), windowed inverse-square point lights, a screen-sized area light
-// whose colour is the live average of the movie frame, exponential fog and
-// ACES filmic tone mapping. The drawable is sRGB so all maths is linear.
+// whose colour is the live average of the movie frame, exponential fog, an
+// additive dusty projector beam, then a post chain: bloom (threshold +
+// separable Gaussian at quarter resolution), ACES filmic tone mapping,
+// vignette and film grain. All scene maths is linear HDR (rgba16Float).
 
 struct VertexIn {
     float3 position [[attribute(0)]];
@@ -102,7 +104,7 @@ fragment float4 cinema_fragment(VOut in [[stage_in]],
             return float4(0.0, 0.0, 0.0, 1.0);
         }
         float3 c = tex.sample(s, uv).rgb * d.emissive.w * 1.6;
-        return float4(aces(c), 1.0);
+        return float4(c, 1.0);
     }
     if (d.params.w > 0.5) {
         base *= tex.sample(s, in.uv);
@@ -110,7 +112,7 @@ fragment float4 cinema_fragment(VOut in [[stage_in]],
     // Emissive surfaces (lamps, neon, light boxes, signage).
     if (mode == 3 || mode == 6) {
         float3 c = base.rgb * d.emissive.w;
-        return float4(aces(applyFog(c, in.worldPos, f) * exposure), 1.0);
+        return float4(applyFog(c, in.worldPos, f) * exposure, 1.0);
     }
 
     float3 N = normalize(in.normal);
@@ -172,7 +174,90 @@ fragment float4 cinema_fragment(VOut in [[stage_in]],
     }
 
     color = applyFog(color, in.worldPos, f);
-    return float4(aces(color * exposure), 1.0);
+    return float4(color * exposure, 1.0);
+}
+
+static float hash3(float3 p) {
+    return fract(sin(dot(p, float3(12.9898, 78.233, 37.719))) * 43758.5453);
+}
+
+// Projector beam: faint haze tinted by the current picture plus drifting dust
+// motes that sparkle in the light. Blended additively, no depth writes.
+fragment float4 beam_fragment(VOut in [[stage_in]],
+                              constant FrameUniforms &f [[buffer(1)]],
+                              constant DrawUniforms &d [[buffer(2)]],
+                              constant float4 *screenAvg [[buffer(3)]]) {
+    float t = in.uv.x;                 // 0 at the lens, 1 at the screen
+    float time = f.cameraPos.w;
+    float3 p = in.worldPos * 10.0 + float3(time * 0.11, time * 0.05, time * 0.08);
+    float dust = smoothstep(0.992, 1.0, hash3(floor(p)));
+    float twinkle = 0.5 + 0.5 * sin(time * 3.0 + hash3(floor(p) + 7.0) * 30.0);
+    float haze = 0.03 * (1.0 - 0.65 * t);
+    float3 tint = screenAvg[0].rgb + 0.03;
+    float camFade = saturate(length(f.cameraPos.xyz - in.worldPos) / 1.8);
+    float3 col = tint * (haze + dust * twinkle * 0.9) * d.emissive.w * camFade;
+    return float4(col, 1.0);
+}
+
+// MARK: Post-processing
+
+struct PostOut {
+    float4 position [[position]];
+    float2 uv;
+};
+
+vertex PostOut post_vertex(uint vid [[vertex_id]]) {
+    float2 p = float2(float((vid << 1) & 2), float(vid & 2));
+    PostOut o;
+    o.position = float4(p * 2.0 - 1.0, 0.0, 1.0);
+    o.uv = float2(p.x, 1.0 - p.y);
+    return o;
+}
+
+// params: x = threshold, zw = source texel size
+fragment float4 bloom_prefilter(PostOut in [[stage_in]],
+                                texture2d<float> src [[texture(0)]],
+                                constant float4 &params [[buffer(0)]]) {
+    constexpr sampler s(filter::linear, address::clamp_to_edge);
+    float2 o = params.zw;
+    float3 c = src.sample(s, in.uv + float2(-o.x, -o.y)).rgb
+             + src.sample(s, in.uv + float2( o.x, -o.y)).rgb
+             + src.sample(s, in.uv + float2(-o.x,  o.y)).rgb
+             + src.sample(s, in.uv + float2( o.x,  o.y)).rgb;
+    c *= 0.25;
+    float lum = max(c.r, max(c.g, c.b));
+    float k = smoothstep(params.x, params.x + 0.8, lum);
+    return float4(min(c * k, float3(16.0)), 1.0);
+}
+
+// params: xy = step (direction * texel)
+fragment float4 bloom_blur(PostOut in [[stage_in]],
+                           texture2d<float> src [[texture(0)]],
+                           constant float4 &params [[buffer(0)]]) {
+    constexpr sampler s(filter::linear, address::clamp_to_edge);
+    const float w[5] = { 0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216 };
+    float3 c = src.sample(s, in.uv).rgb * w[0];
+    for (int i = 1; i < 5; i++) {
+        float2 off = params.xy * float(i) * 1.5;
+        c += src.sample(s, in.uv + off).rgb * w[i];
+        c += src.sample(s, in.uv - off).rgb * w[i];
+    }
+    return float4(c, 1.0);
+}
+
+// params: x = bloom strength, y = grain amount, z = time, w = vignette
+fragment float4 composite(PostOut in [[stage_in]],
+                          texture2d<float> hdr [[texture(0)]],
+                          texture2d<float> bloom [[texture(1)]],
+                          constant float4 &params [[buffer(0)]]) {
+    constexpr sampler s(filter::linear, address::clamp_to_edge);
+    float3 c = hdr.sample(s, in.uv).rgb + bloom.sample(s, in.uv).rgb * params.x;
+    c = aces(c);
+    float2 d = in.uv - 0.5;
+    c *= mix(1.0, smoothstep(0.95, 0.3, length(d * float2(1.0, 0.8))), params.w);
+    float n = fract(sin(dot(in.uv * 1000.0 + params.z, float2(12.9898, 78.233))) * 43758.5453);
+    c += (n - 0.5) * params.y;
+    return float4(saturate(c), 1.0);
 }
 
 // Average colour of the current screen image (8x8 taps, one threadgroup),

@@ -69,7 +69,9 @@ final class CinemaGame: ObservableObject {
             let seatedEye = seat + Vec3(0, 1.12 - 0.12 * recline, 0) + back * (0.18 + 0.2 * recline)
             let standEye = standPosition + Vec3(0, CinemaWorld.eyeHeight, 0)
             let t = smoothstep(sitBlend)
-            let eye = standEye + (seatedEye - standEye) * t
+            // Subtle breathing so the seated view feels like a body, not a tripod.
+            let breathe = Vec3(0, sinf(time * 1.35) * 0.006, 0) + back * (sinf(time * 0.7) * 0.004)
+            let eye = standEye + (seatedEye - standEye) * t + breathe * t
             let dir = forwardVector(yaw: yaw, pitch: pitch + 0.08 * recline)
             return CameraState(eye: eye, target: eye + dir)
         }

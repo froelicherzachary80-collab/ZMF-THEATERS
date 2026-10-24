@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum GameSheet: String, Identifiable {
-    case boxOffice, concessions, wallet, map, admin, phone
+    case boxOffice, concessions, wallet, map, admin, phone, party
     var id: String { rawValue }
 }
 
@@ -13,8 +13,29 @@ struct GameView: View {
     @EnvironmentObject var wallet: Wallet
     @State private var sheet: GameSheet?
     @State private var fullscreen = false
+    @State private var controlsVisible = true
+    @State private var hideTask: Task<Void, Never>?
 
     private var settings: AppSettings { settingsStore.settings }
+
+    /// Seated during a screening with auto-hide on: the picture gets the whole screen.
+    private var cinemaMode: Bool { settings.autoHideControls && game.hud.seated && session.isRunning }
+    private var hudVisible: Bool { !cinemaMode || controlsVisible }
+
+    private func showControls() {
+        withAnimation(.easeOut(duration: 0.25)) { controlsVisible = true }
+        scheduleHide(after: 5)
+    }
+
+    private func scheduleHide(after seconds: Double) {
+        hideTask?.cancel()
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            if !Task.isCancelled && cinemaMode && sheet == nil {
+                withAnimation(.easeInOut(duration: 0.6)) { controlsVisible = false }
+            }
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -25,9 +46,42 @@ struct GameView: View {
                 Text("Metal is unavailable on this device.").foregroundStyle(.red)
             }
 
-            LookPad { game.lookDelta += $0 }.ignoresSafeArea()
+            LookPad(onDelta: { game.lookDelta += $0 }, onTap: {
+                guard cinemaMode else { return }
+                if controlsVisible {
+                    hideTask?.cancel()
+                    withAnimation(.easeInOut(duration: 0.3)) { controlsVisible = false }
+                } else {
+                    showControls()
+                }
+            })
+            .ignoresSafeArea()
 
-            hudLayer
+            if session.phase == .feature {
+                SubtitleOverlay(engine: session.feature, raised: hudVisible)
+            }
+
+            if hudVisible {
+                hudLayer.transition(.opacity)
+            } else {
+                // The only thing left on screen: a faint button to bring the controls back.
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button { showControls() } label: {
+                            Image(systemName: "slider.horizontal.below.rectangle")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.white.opacity(0.75))
+                                .frame(width: 40, height: 40)
+                                .background(.black.opacity(0.3), in: Circle())
+                        }
+                        .opacity(0.55)
+                    }
+                }
+                .padding(14)
+                .transition(.opacity)
+            }
 
             if fullscreen {
                 FullscreenOverlay(engine: session.feature, close: { fullscreen = false })
@@ -35,6 +89,14 @@ struct GameView: View {
             }
         }
         .sheet(item: $sheet) { s in sheetContent(s) }
+        .onChange(of: cinemaMode) { _, on in
+            if on { scheduleHide(after: 4) } else { hideTask?.cancel(); controlsVisible = true }
+        }
+        .onChange(of: session.phase) { _, phase in
+            if phase == .feature && cinemaMode { scheduleHide(after: 3) }
+            if case .failed = phase { controlsVisible = true }
+        }
+        .onChange(of: sheet) { _, s in if s == nil && cinemaMode { scheduleHide(after: 3) } }
         .onAppear {
             // Gameplay prefers landscape; menus still work in portrait.
             if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
@@ -62,6 +124,7 @@ struct GameView: View {
         case .wallet: WalletView()
         case .map: CinemaMapView()
         case .admin: AdminView()
+        case .party: WatchPartyView()
         }
     }
 
@@ -72,7 +135,7 @@ struct GameView: View {
             topBar
             Spacer()
             if game.hud.seated && session.isRunning {
-                ScreeningControls(engine: session.feature, fullscreen: $fullscreen)
+                ScreeningControls(engine: session.feature, fullscreen: $fullscreen, openParty: { sheet = .party })
                     .padding(.bottom, 6)
             }
             bottomBar
@@ -116,6 +179,7 @@ struct GameView: View {
                 HUDButton(symbol: "ticket.fill", label: "TICKET") { sheet = .phone }
                 HUDButton(symbol: "creditcard.fill", label: "WALLET") { sheet = .wallet }
                 HUDButton(symbol: "iphone", label: "PHONE") { sheet = .boxOffice }
+                HUDButton(symbol: "person.2.fill", label: "PARTY", tint: model.party.isInParty ? .green : .white) { sheet = .party }
                 HUDButton(symbol: game.cameraMode == .firstPerson ? "eye.fill" : "figure.stand", label: "CAMERA") {
                     game.cameraMode = game.cameraMode == .firstPerson ? .thirdPerson : .firstPerson
                 }
@@ -207,14 +271,10 @@ struct ScreeningControls: View {
     @EnvironmentObject var session: TheaterSession
     @ObservedObject var engine: PlaybackEngine
     @Binding var fullscreen: Bool
+    var openParty: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 6) {
-            if let sub = engine.subtitleText, session.phase == .feature {
-                Text(sub).font(.title3.weight(.semibold)).multilineTextAlignment(.center)
-                    .padding(.horizontal, 10).padding(.vertical, 4)
-                    .background(.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
-            }
             HStack(spacing: 12) {
                 Text(session.phaseLabel).font(.caption.bold()).foregroundStyle(.orange)
                 switch session.phase {
@@ -228,6 +288,7 @@ struct ScreeningControls: View {
                 if session.phase == .feature || session.phase == .credits {
                     FeatureTransport(engine: engine)
                     Button { fullscreen = true } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                    Button(action: openParty) { Image(systemName: "person.2.fill") }
                 }
                 Button(role: .destructive) { model.leaveScreening() } label: { Image(systemName: "xmark.circle.fill") }
             }
@@ -238,16 +299,39 @@ struct ScreeningControls: View {
     }
 }
 
+/// Subtitles drawn under the screen, independent of whether controls are visible.
+struct SubtitleOverlay: View {
+    @ObservedObject var engine: PlaybackEngine
+    var raised: Bool
+
+    var body: some View {
+        VStack {
+            Spacer()
+            if let sub = engine.subtitleText {
+                Text(sub).font(.title3.weight(.semibold)).multilineTextAlignment(.center)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
+                    .padding(.bottom, raised ? 150 : 22)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 struct FeatureTransport: View {
+    @EnvironmentObject var party: WatchParty
     @ObservedObject var engine: PlaybackEngine
 
     var body: some View {
         HStack(spacing: 10) {
-            Button { engine.skip(-10) } label: { Image(systemName: "gobackward.10") }
-            Button { engine.togglePlay() } label: { Image(systemName: engine.status == .paused ? "play.fill" : "pause.fill") }
-            Button { engine.skip(30) } label: { Image(systemName: "goforward.30") }
+            Button { seek(engine.currentTime - 10) } label: { Image(systemName: "gobackward.10") }
+            Button { party.isInParty ? party.userTogglePlay() : engine.togglePlay() } label: {
+                Image(systemName: engine.status == .paused || engine.status == .ready ? "play.fill" : "pause.fill")
+            }
+            Button { seek(engine.currentTime + 30) } label: { Image(systemName: "goforward.30") }
             Text("\(formatTime(engine.currentTime)) / \(formatTime(engine.duration))").font(.caption.monospacedDigit())
-            Slider(value: Binding(get: { engine.currentTime }, set: { engine.seek(to: $0) }), in: 0...max(1, engine.duration))
+            Slider(value: Binding(get: { engine.currentTime }, set: { seek($0) }), in: 0...max(1, engine.duration))
                 .frame(width: 150)
             if engine.status == .buffering { ProgressView().controlSize(.small) }
             Menu {
@@ -274,6 +358,11 @@ struct FeatureTransport: View {
                 Section { Text("Playback: \(engine.playMethod)") }
             } label: { Image(systemName: "ellipsis.circle") }
         }
+    }
+
+    /// In a watch party every seek goes through SyncPlay so everyone jumps together.
+    private func seek(_ seconds: Double) {
+        if party.isInParty { party.userSeek(to: seconds) } else { engine.seek(to: seconds) }
     }
 }
 

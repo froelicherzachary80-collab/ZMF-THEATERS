@@ -15,6 +15,7 @@ struct ZMFTheatersApp: App {
                 .environmentObject(model.rotation)
                 .environmentObject(model.session)
                 .environmentObject(model.game)
+                .environmentObject(model.party)
                 .preferredColorScheme(.dark)
                 .statusBarHidden()
                 .persistentSystemOverlays(.hidden)

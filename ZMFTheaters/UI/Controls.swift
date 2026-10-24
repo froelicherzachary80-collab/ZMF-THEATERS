@@ -35,7 +35,10 @@ struct Joystick: View {
 /// Full-screen swipe-to-look surface placed underneath the buttons.
 struct LookPad: View {
     var onDelta: (SIMD2<Float>) -> Void
+    var onTap: () -> Void = {}
     @State private var last: CGSize = .zero
+    @State private var travelled: CGFloat = 0
+    @State private var began = Date()
 
     var body: some View {
         Color.clear
@@ -43,12 +46,19 @@ struct LookPad: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { v in
+                        if last == .zero && travelled == 0 { began = Date() }
                         let dx = v.translation.width - last.width
                         let dy = v.translation.height - last.height
                         last = v.translation
+                        travelled += abs(dx) + abs(dy)
                         onDelta(SIMD2<Float>(Float(dx), Float(dy)))
                     }
-                    .onEnded { _ in last = .zero }
+                    .onEnded { _ in
+                        // A short touch that barely moved is a tap, not a look.
+                        if travelled < 10 && Date().timeIntervalSince(began) < 0.35 { onTap() }
+                        last = .zero
+                        travelled = 0
+                    }
             )
     }
 }

@@ -116,7 +116,7 @@ jobs:
           xcrun simctl terminate "$UDID" com.zmf.theatersplus || true
           sleep 2
           for shot in lobby hall room seat; do
-            xcrun simctl launch "$UDID" com.zmf.theatersplus -zmfShot $shot
+            xcrun simctl launch "$UDID" com.zmf.theatersplus -zmfShot $shot -zmfDemoParty
             sleep 10
             xcrun simctl io "$UDID" screenshot "shots/$shot.png"
             xcrun simctl terminate "$UDID" com.zmf.theatersplus || true

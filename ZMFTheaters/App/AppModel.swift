@@ -18,6 +18,7 @@ final class AppModel: ObservableObject {
     let rotation = RotationDirector()
     let session = TheaterSession()
     let game = CinemaGame()
+    let party = WatchParty()
     let renderer: Renderer?
 
     @Published var mode: GameMode?
@@ -34,6 +35,18 @@ final class AppModel: ObservableObject {
         renderer = Renderer()
         renderer?.game = game
         renderer?.session = session
+        party.library = library
+        party.session = session
+        party.onNeedScreening = { [weak self] item, start in self?.startPartyScreening(item: item, startAt: start) }
+        party.$members
+            .sink { [weak self] names in self?.updatePartyGuests(names) }
+            .store(in: &cancellables)
+        wallet.$state
+            .sink { [weak self] st in
+                self?.renderer?.carrying = ((st.snacks[Snack.popcorn.rawValue] ?? 0) + (st.snacks[Snack.candy.rawValue] ?? 0) > 0,
+                                            (st.snacks[Snack.soda.rawValue] ?? 0) > 0)
+            }
+            .store(in: &cancellables)
         session.onTicketUsed = { [weak self] t in
             self?.wallet.markUsed(t)
             self?.refreshUnlocks()
@@ -50,7 +63,8 @@ final class AppModel: ObservableObject {
 
         // Forward nested ObservableObject changes so views observing AppModel refresh.
         for publisher in [library.objectWillChange.eraseToAnyPublisher(), wallet.objectWillChange.eraseToAnyPublisher(),
-                          rotation.objectWillChange.eraseToAnyPublisher(), settingsStore.objectWillChange.eraseToAnyPublisher()] {
+                          rotation.objectWillChange.eraseToAnyPublisher(), settingsStore.objectWillChange.eraseToAnyPublisher(),
+                          party.objectWillChange.eraseToAnyPublisher()] {
             publisher.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         }
 
@@ -96,6 +110,10 @@ final class AppModel: ObservableObject {
             game.debugPlace(seat, yaw: CinemaWorld.screenYaw(9), pitch: 0)
             game.sit(room: 9, row: 5, seat: 3)
             session.begin(ticket: ticket, item: item, resumeAt: nil, library: library, settings: settings)
+            if args.contains("-zmfDemoParty") {
+                updatePartyGuests(["Alex", "Sam"])
+                renderer?.carrying = (true, true)
+            }
         default:
             break
         }
@@ -211,6 +229,45 @@ final class AppModel: ObservableObject {
     func startScreening(ticket: Ticket, item: MediaItem, resumeAt: Double?) {
         showResumePrompt = nil
         session.begin(ticket: ticket, item: item, resumeAt: resumeAt, library: library, settings: settings, skipPreshow: resumeAt != nil)
+    }
+
+    // MARK: Watch party
+
+    /// A friend's party is playing a title: take a free party seat in the right
+    /// auditorium and let SyncPlay drive playback.
+    func startPartyScreening(item: MediaItem, startAt: Double) {
+        let room: CinemaRoom
+        let row: Int
+        let seat: Int
+        if let s = game.seatedAt {
+            room = CinemaRooms.room(s.room); row = s.row; seat = s.seat
+        } else {
+            room = CinemaRooms.bestRoom(for: item); row = 4; seat = 3
+        }
+        let ticket = Ticket(mediaId: item.id, title: item.displayTitle, roomId: room.id, row: row, seat: seat,
+                            showtime: nil, isPrivate: true, kind: .standard, price: 0)
+        _ = wallet.issue(ticket, settings: settings)
+        refreshUnlocks()
+        guide(to: ticket)
+        if game.seatedAt == nil {
+            game.debugPlace(CinemaWorld.seatPosition(room: room.id, row: row, seat: seat), yaw: CinemaWorld.screenYaw(room.id), pitch: 0)
+            game.sit(room: room.id, row: row, seat: seat)
+        }
+        if mode == nil { mode = .singleplayer }
+        flash("Watch party · Room \(room.code) · \(item.displayTitle)")
+        session.beginParty(ticket: ticket, item: item, startAt: startAt, library: library, settings: settings) { [weak self] in
+            self?.party.localReady()
+        }
+    }
+
+    private func updatePartyGuests(_ names: [String]) {
+        guard let renderer else { return }
+        let others = names.filter { $0 != party.myName }
+        renderer.partyGuests = others
+        for (i, name) in others.prefix(7).enumerated() {
+            renderer.setTexture("party.name.\(i)", renderer.factory.label(name, size: CGSize(width: 384, height: 96),
+                font: .systemFont(ofSize: 54, weight: .heavy), fg: .white, bg: UIColor(red: 0.1, green: 0.1, blue: 0.16, alpha: 1), border: .orange))
+        }
     }
 
     func standUp() {
