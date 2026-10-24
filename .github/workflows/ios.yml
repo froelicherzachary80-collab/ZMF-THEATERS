@@ -66,6 +66,8 @@ jobs:
     name: Renderer screenshots (simulator)
     runs-on: macos-15
     timeout-minutes: 40
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -122,14 +124,19 @@ jobs:
           name: screenshots
           path: shots/*.png
 
-      - name: Print screenshot previews
+      - name: Publish previews to the ci-screenshots branch
+        if: github.event_name == 'push'
         run: |
+          mkdir -p previews
           for f in shots/*.png; do
-            sips -Z 520 -s format jpeg -s formatOptions 45 "$f" --out "${f%.png}.jpg" >/dev/null
-            echo "===BEGIN $(basename "${f%.png}")"
-            base64 -b 150 -i "${f%.png}.jpg"
-            echo "===END"
+            sips -Z 1000 -s format jpeg -s formatOptions 70 "$f" --out "previews/$(basename "${f%.png}").jpg" >/dev/null
           done
+          cd previews
+          git init -q -b ci-screenshots
+          git config user.name "zmf-ci"
+          git config user.email "zmf-ci@users.noreply.github.com"
+          git add . && git commit -q -m "Screenshots for ${GITHUB_SHA}"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ci-screenshots
 
   ipa:
     name: Build IPA
