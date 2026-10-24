@@ -92,11 +92,11 @@ public partial class MainWindow : Window
 
     void BuildNowShowing()
     {
-        var index = Rotation.PeriodIndex(DateTime.UtcNow);
-        var (start, end) = Rotation.Bounds(index);
-        var picks = Rotation.Select(catalog, index);
+        var index = RotationDirector.PeriodIndex(DateTime.UtcNow);
+        var (start, end) = RotationDirector.Bounds(index);
+        var picks = RotationDirector.Select(catalog, index);
         NowList.ItemsSource = Rooms.All.Where(r => picks.ContainsKey(r.Id)).Select(r => new RoomCard { Room = r, Film = picks[r.Id] }).ToList();
-        ProgrammeText.Text = $"Programme {start.ToLocalTime():MMM d} – {end.AddSeconds(-1).ToLocalTime():MMM d} · twelve films, one per auditorium, new every {Rotation.Days} days";
+        ProgrammeText.Text = $"Programme {start.ToLocalTime():MMM d} – {end.AddSeconds(-1).ToLocalTime():MMM d} · twelve films, one per auditorium, new every {RotationDirector.Days} days";
     }
 
     void OnSearch(object sender, TextChangedEventArgs e) => ApplySearch();

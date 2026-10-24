@@ -46,7 +46,7 @@ public static class Rooms
 
 /// Port of the iPhone RotationDirector: 12 featured films every 3 days,
 /// counted from 23 Oct 2026 00:00 America/New_York, seeded SplitMix64.
-public static class Rotation
+public static class RotationDirector
 {
     public static readonly DateTime Anchor = new DateTimeOffset(2026, 10, 23, 0, 0, 0, TimeSpan.FromHours(-4)).UtcDateTime;
     public const int Days = 3;
