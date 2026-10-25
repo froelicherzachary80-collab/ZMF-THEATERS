@@ -87,6 +87,10 @@ enum WorldGeometry {
         b.box(Vec3(13.0, 1.22, 9.0), Vec3(14.3, 1.9, 10.0), color: rgb(1, 0.4, 0.8), mat: .glow(0.8))
         b.box(Vec3(7.5, 0, 12.0), Vec3(14.5, 3.3, 12.2), color: rgb(0.14, 0.08, 0.06))
 
+        // 4DX preview teaser light box on the west wall.
+        b.box(center: Vec3(-15.92, 3.2, 16.6), size: Vec3(0.12, 2.75, 5.4), color: rgb(0.3, 0.9, 1), mat: .glow(1.0))
+        b.sign(center: Vec3(-15.84, 3.2, 16.6), normal: Vec3(1, 0, 0), width: 5.0, height: 2.4, mat: .glowTex("sign.4dx", 1.4))
+
         // Ticket kiosks.
         for x in [-6, 6] as [Float] {
             b.box(Vec3(x - 0.4, 0, 13.6), Vec3(x + 0.4, 1.7, 14.4), color: rgb(0.12, 0.12, 0.14), mat: .lit(rough: 0.3, metal: 0.6))

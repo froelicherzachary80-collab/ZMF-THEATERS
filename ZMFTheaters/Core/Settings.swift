@@ -73,6 +73,25 @@ struct AppSettings: Codable, Equatable {
     var projectorBeam = true
     var filmGrain = true
 
+    // MARK: ZMF DepthCinema AI (2D → 3D)
+    /// Overall 3D strength (scales disparity).
+    var depthIntensity: Double = 1.0
+    /// Maximum horizontal disparity as a fraction of the picture width.
+    var stereoSeparation: Double = 0.012
+    /// Depth that sits exactly on the screen plane (0 = far, 1 = near).
+    var convergence: Double = 0.45
+    /// 0 = full-colour anaglyph, 1 = optimised anaglyph with the least ghosting.
+    var ghostingReduction: Double = 0.6
+    /// How often the depth model runs (frames in between reuse the stabilised depth).
+    var depthUpdatesPerSecond: Double = 8
+
+    // MARK: 4DX preview
+    var fourDXPrice = 400
+    var fourDXIntensity: Double = 1.0
+    var fourDXHaptics = true
+    /// Admin override to try 4DX outside the Oct 27–28 preview days.
+    var fourDXForcePreview = false
+
     // MARK: Playback
     var maxBitrateMbps = 60
     var autoplayNextEpisode = true

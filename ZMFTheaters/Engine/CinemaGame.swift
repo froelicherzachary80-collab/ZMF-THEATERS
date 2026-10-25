@@ -47,6 +47,8 @@ final class CinemaGame: ObservableObject {
     /// The seat the player's ticket points to, for guidance and the SIT prompt.
     var seatTarget: (room: Int, row: Int, seat: Int)?
     var lookSensitivity: Float = 1
+    /// 4DX motion-seat offset and pitch/roll, applied to the seated camera.
+    var seatMotion: (offset: Vec3, tilt: Vec2) = (.zero, .zero)
 
     var zone: Zone { CinemaWorld.zone(at: Vec2(position.x, position.z)) }
     var isSeated: Bool { seatedAt != nil }
@@ -71,8 +73,8 @@ final class CinemaGame: ObservableObject {
             let t = smoothstep(sitBlend)
             // Subtle breathing so the seated view feels like a body, not a tripod.
             let breathe = Vec3(0, sinf(time * 1.35) * 0.006, 0) + back * (sinf(time * 0.7) * 0.004)
-            let eye = standEye + (seatedEye - standEye) * t + breathe * t
-            let dir = forwardVector(yaw: yaw, pitch: pitch + 0.08 * recline)
+            let eye = standEye + (seatedEye - standEye) * t + breathe * t + seatMotion.offset * t
+            let dir = forwardVector(yaw: yaw + seatMotion.tilt.y * t, pitch: pitch + 0.08 * recline + seatMotion.tilt.x * t)
             return CameraState(eye: eye, target: eye + dir)
         }
         let bob = sinf(walkPhase) * 0.035 * min(1, simd_length(moveInput))

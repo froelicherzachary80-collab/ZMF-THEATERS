@@ -270,7 +270,9 @@ kernel void screen_average(texture2d<float> tex [[texture(0)]],
     constexpr sampler s(filter::linear, address::clamp_to_edge);
     threadgroup float4 shared[64];
     float2 uv = (float2(float(tid % 8), float(tid / 8)) + 0.5) / 8.0;
-    shared[tid] = tex.sample(s, uv, level(0));
+    float4 tap = tex.sample(s, uv, level(0));
+    shared[tid] = tap;
+    out[1 + tid] = tap;                 // 8x8 grid read back by the 4DX engine
     threadgroup_barrier(mem_flags::mem_threadgroup);
     for (uint stride = 32; stride > 0; stride >>= 1) {
         if (tid < stride) shared[tid] += shared[tid + stride];
@@ -280,4 +282,34 @@ kernel void screen_average(texture2d<float> tex [[texture(0)]],
         float4 avg = shared[0] / 64.0;
         out[0] = mix(out[0], avg, 0.2);
     }
+}
+
+// ZMF DepthCinema AI — stereo synthesis + red/cyan anaglyph.
+// Depth-image-based rendering: each eye samples the 2D frame displaced
+// horizontally by a disparity proportional to (depth − convergence). Depth is
+// dilated horizontally (max of neighbours) so foreground edges keep their
+// shape instead of tearing (edge-aware artifact reduction). The left eye feeds
+// the red channel, the right eye green+blue. `ghost` blends the red channel
+// toward an optimised (green/blue-derived) red to reduce ghosting and retinal
+// rivalry. params: x = max disparity (uv), y = convergence, z = ghost, w = depth gamma.
+kernel void anaglyph_convert(texture2d<float> video [[texture(0)]],
+                             texture2d<float> depth [[texture(1)]],
+                             texture2d<float, access::write> outTex [[texture(2)]],
+                             constant float4 &p [[buffer(0)]],
+                             uint2 gid [[thread_position_in_grid]]) {
+    uint w = outTex.get_width(), h = outTex.get_height();
+    if (gid.x >= w || gid.y >= h) return;
+    constexpr sampler s(filter::linear, address::clamp_to_edge);
+    float2 uv = (float2(gid) + 0.5) / float2(w, h);
+    float2 dx = float2(1.5 / float(depth.get_width()), 0.0);
+    float d = depth.sample(s, uv).r;
+    d = max(d, max(depth.sample(s, uv - dx).r, depth.sample(s, uv + dx).r));
+    d = max(d, max(depth.sample(s, uv - dx * 2.0).r, depth.sample(s, uv + dx * 2.0).r) - 0.02);
+    d = pow(saturate(d), p.w);
+    float disparity = (d - p.y) * p.x;           // > 0: in front of the screen
+    float3 L = video.sample(s, uv - float2(disparity, 0.0)).rgb;
+    float3 R = video.sample(s, uv + float2(disparity, 0.0)).rgb;
+    float optimisedRed = saturate(0.7 * L.g + 0.3 * L.b);
+    float red = mix(L.r, optimisedRed, p.z);
+    outTex.write(float4(red, R.g, R.b, 1.0), gid);
 }

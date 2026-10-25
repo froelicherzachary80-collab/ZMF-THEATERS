@@ -159,6 +159,11 @@ final class TheaterSession: ObservableObject {
         let engine = feature
         let subtitlePref = settings.preferredSubtitleLanguage.lowercased()
         prepareTask = Task {
+            if item.itemId.hasPrefix("local:") {
+                // Owner-supplied local file (used by CI to test 3D conversion without a server).
+                try await engine.prepareLocal(url: URL(fileURLWithPath: String(item.itemId.dropFirst(6))))
+                return
+            }
             guard let lib, let server = lib.server(for: item), let userId = server.userId else {
                 throw JellyfinError(message: "The server for this title is no longer connected.", statusCode: nil)
             }

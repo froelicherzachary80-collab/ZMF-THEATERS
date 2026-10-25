@@ -5,3 +5,5 @@ xcuserdata/
 *.ipa
 Payload/
 .DS_Store
+ZMFTheaters/Models/*.mlpackage/
+.cache/

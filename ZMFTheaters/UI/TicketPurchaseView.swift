@@ -15,6 +15,8 @@ struct TicketPurchaseView: View {
     @State private var showtimeId: String?   // nil = private screening now
     @State private var row: Int?
     @State private var seat: Int?
+    @State private var format: ScreeningFormat = .standard2D
+    @State private var formatChosen = false
 
     private var selectedRoom: CinemaRoom { CinemaRooms.room(roomId == 0 ? room.id : roomId) }
     private var showtimes: [Showtime] { featured ? model.nextShowtimes(selectedRoom.id, limit: 8) : [] }
@@ -25,6 +27,7 @@ struct TicketPurchaseView: View {
             VStack(alignment: .leading, spacing: 16) {
                 header
                 showtimePicker
+                formatPicker
                 roomPicker
                 SeatMap(room: selectedRoom, taken: model.takenSeats(room: selectedRoom.id, showtime: chosenShowtime?.featureStart),
                         row: $row, seat: $seat)
@@ -34,7 +37,10 @@ struct TicketPurchaseView: View {
         }
         .navigationTitle("Tickets")
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { if roomId == 0 { roomId = room.id } }
+        .onAppear {
+            if roomId == 0 { roomId = room.id }
+            if !formatChosen { format = room.is3D ? .anaglyph3D : .standard2D }
+        }
     }
 
     private var header: some View {
@@ -43,9 +49,7 @@ struct TicketPurchaseView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.displayTitle).font(.title3.bold())
                 Text("ROOM \(selectedRoom.code) · \(selectedRoom.name.uppercased())").font(.caption.bold()).foregroundStyle(.orange)
-                Text(selectedRoom.is3D
-                     ? "3D auditorium · red/cyan conversion arrives in v0.5 — this screening plays in genuine 2D"
-                     : "2D auditorium").font(.caption2).foregroundStyle(.secondary)
+                Text(selectedRoom.is3D ? "3D auditorium" : "2D auditorium").font(.caption2).foregroundStyle(.secondary)
                 if !library.isAvailable(item) {
                     Label("This title's server is offline right now", systemImage: "wifi.slash").font(.caption2).foregroundStyle(.red)
                 }
@@ -70,6 +74,47 @@ struct TicketPurchaseView: View {
         }
     }
 
+    private var formatPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Format").font(.headline)
+            HStack {
+                ForEach(ScreeningFormat.allCases) { f in
+                    let locked = f == .fourDX && !model.fourDXAvailable
+                    Button {
+                        guard !locked else { return }
+                        format = f
+                        formatChosen = true
+                    } label: {
+                        VStack(spacing: 3) {
+                            Image(systemName: locked ? "lock.fill" : f.symbol)
+                            Text(f.label).font(.caption.bold())
+                            Text(priceLabel(f)).font(.caption2)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(format == f ? Color.orange : Color.gray.opacity(0.22), in: RoundedRectangle(cornerRadius: 10))
+                        .foregroundStyle(format == f ? Color.black : (locked ? Color.gray : Color.primary))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            Text(formatNote).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    private func priceLabel(_ f: ScreeningFormat) -> String {
+        if f == .fourDX && !model.fourDXAvailable { return "Oct 27–28" }
+        return "Z$\(model.price(room: selectedRoom, row: 0, format: f).0)+"
+    }
+
+    private var formatNote: String {
+        switch format {
+        case .standard2D: return "The film plays exactly as mastered."
+        case .anaglyph3D: return "ZMF DepthCinema AI estimates depth on-device and converts the film to red/cyan 3D. Wear red (left) / cyan (right) glasses. Converted 3D is an approximation, not native 3D."
+        case .fourDX: return "4DX preview: motion seat, rumble, strobes and fog driven by the on-screen action. On Windows it also drives a bHaptics TactSuit Air."
+        }
+    }
+
     private var roomPicker: some View {
         HStack {
             Text("Auditorium").font(.headline)
@@ -85,11 +130,11 @@ struct TicketPurchaseView: View {
     }
 
     private var purchaseBar: some View {
-        let price = row.map { model.price(room: selectedRoom, row: $0) }
+        let price = row.map { model.price(room: selectedRoom, row: $0, format: format) }
         return HStack {
             VStack(alignment: .leading) {
                 if let row, let seat, let price {
-                    Text("Seat \(Seating.rowLetter(row))\(seat + 1) · \(price.1.label)").font(.headline)
+                    Text("Seat \(Seating.rowLetter(row))\(seat + 1) · \(format.label)\(price.1 == .vip ? " · VIP" : "")").font(.headline)
                     Text("Z$\(price.0) · balance Z$\(wallet.balance)").font(.caption).foregroundStyle(.secondary)
                 } else {
                     Text("Choose a seat").font(.headline)
@@ -98,7 +143,7 @@ struct TicketPurchaseView: View {
             Spacer()
             Button {
                 guard let row, let seat else { return }
-                if model.purchase(item: item, room: selectedRoom, row: row, seat: seat, showtime: chosenShowtime, episodeQueue: episodeQueue) != nil {
+                if model.purchase(item: item, room: selectedRoom, row: row, seat: seat, showtime: chosenShowtime, episodeQueue: episodeQueue, format: format) != nil {
                     dismiss()
                 }
             } label: {

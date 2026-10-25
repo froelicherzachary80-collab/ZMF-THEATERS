@@ -105,7 +105,8 @@ final class AppModel: ObservableObject {
             game.debugPlace(t.point(Vec3(23, 0, 7)), yaw: CinemaWorld.screenYaw(5), pitch: -0.12)
         case "seat", "seatleft":
             let item = MediaItem(serverAccountId: UUID(), itemId: "demo", kind: .movie, title: "Preshow Demo", year: 2026)
-            let ticket = Ticket(mediaId: item.id, title: item.title, roomId: 9, row: 5, seat: 3, showtime: nil, isPrivate: true, kind: .vip, price: 0)
+            let ticket = Ticket(mediaId: item.id, title: item.title, roomId: 9, row: 5, seat: 3, showtime: nil, isPrivate: true, kind: .vip, price: 0,
+                                format: args.contains("-zmfDemo3D") ? .anaglyph3D : nil)
             let seat = CinemaWorld.seatPosition(room: 9, row: 5, seat: 3)
             game.debugPlace(seat, yaw: CinemaWorld.screenYaw(9), pitch: 0)
             game.sit(room: 9, row: 5, seat: 3)
@@ -115,6 +116,16 @@ final class AppModel: ObservableObject {
                 updatePartyGuests(["Alex", "Sam"])
                 renderer?.carrying = (true, true)
             }
+        case "seat3d":
+            // Plays the first file in Documents/Trailers as a 3D-ticket feature.
+            let files = (try? FileManager.default.contentsOfDirectory(at: JSONStore.trailersDirectory, includingPropertiesForKeys: nil)) ?? []
+            guard let file = files.first(where: { $0.pathExtension.lowercased() == "mp4" }) else { break }
+            let item = MediaItem(serverAccountId: UUID(), itemId: "local:" + file.path, kind: .movie, title: "3D Conversion Test", year: 2026)
+            let ticket = Ticket(mediaId: item.id, title: item.title, roomId: 9, row: 3, seat: 3, showtime: nil, isPrivate: true,
+                                kind: .threeD, price: 0, format: .anaglyph3D)
+            game.debugPlace(CinemaWorld.seatPosition(room: 9, row: 3, seat: 3), yaw: CinemaWorld.screenYaw(9), pitch: 0)
+            game.sit(room: 9, row: 3, seat: 3)
+            session.begin(ticket: ticket, item: item, resumeAt: nil, library: library, settings: settings, skipPreshow: true)
         default:
             break
         }
@@ -144,6 +155,7 @@ final class AppModel: ObservableObject {
         signageTask?.cancel()
         let fmt = ShowtimeScheduler.timeFormatter(settings)
         renderer.setTexture("sign.menu", renderer.factory.menuBoard(settings))
+        renderer.setTexture("sign.4dx", renderer.factory.fourDXTeaser(active: fourDXAvailable, line: FourDX.teaser(settings: settings)))
         for room in CinemaRooms.all {
             let film = featured(room.id)
             renderer.setTexture("door.\(room.id)", renderer.factory.doorSign(room: room, film: film?.title))
@@ -168,28 +180,42 @@ final class AppModel: ObservableObject {
 
     // MARK: Tickets
 
-    func price(room: CinemaRoom, row: Int) -> (Int, TicketKind) {
-        if Seating.vipRows.contains(row) { return (settings.vipPrice, .vip) }
-        if room.is3D { return (settings.threeDPrice, .threeD) }
-        return (settings.standardPrice, .standard)
+    /// Base price by format (2D Z$150 · 3D Z$225 · 4DX Z$400), plus the VIP
+    /// upgrade (Z$350 − Z$150 = Z$200) for the recliner rows E–F.
+    func price(room: CinemaRoom, row: Int, format: ScreeningFormat = .standard2D) -> (Int, TicketKind) {
+        let vip = Seating.vipRows.contains(row)
+        let base: Int
+        switch format {
+        case .standard2D: base = settings.standardPrice
+        case .anaglyph3D: base = settings.threeDPrice
+        case .fourDX: base = settings.fourDXPrice
+        }
+        let upgrade = vip ? max(0, settings.vipPrice - settings.standardPrice) : 0
+        let kind: TicketKind = vip ? .vip : (format == .anaglyph3D ? .threeD : .standard)
+        return (base + upgrade, kind)
     }
+
+    var fourDXAvailable: Bool { FourDX.isPreviewActive(settings: settings) }
 
     func takenSeats(room: Int, showtime: Date?) -> Set<Int> {
         Set(wallet.activeTickets.filter { $0.roomId == room && $0.showtime == showtime && !$0.isPrivate }.map { $0.row * 100 + $0.seat })
     }
 
     @discardableResult
-    func purchase(item: MediaItem, room: CinemaRoom, row: Int, seat: Int, showtime: Showtime?, episodeQueue: [String] = []) -> Ticket? {
-        let (p, kind) = price(room: room, row: row)
+    func purchase(item: MediaItem, room: CinemaRoom, row: Int, seat: Int, showtime: Showtime?, episodeQueue: [String] = [],
+                  format: ScreeningFormat = .standard2D) -> Ticket? {
+        let format = (format == .fourDX && !fourDXAvailable) ? .standard2D : format
+        let (p, kind) = price(room: room, row: row, format: format)
         let t = Ticket(mediaId: item.id, title: item.displayTitle, roomId: room.id, row: row, seat: seat,
-                       showtime: showtime?.featureStart, isPrivate: showtime == nil, kind: kind, price: p, episodeQueue: episodeQueue)
+                       showtime: showtime?.featureStart, isPrivate: showtime == nil, kind: kind, price: p, episodeQueue: episodeQueue,
+                       format: format)
         guard wallet.issue(t, settings: settings) else {
             flash("Not enough ZMF CASH for this ticket.")
             return nil
         }
         refreshUnlocks()
         guide(to: t)
-        flash("Ticket purchased · Room \(room.code) · Seat \(t.seatLabel)")
+        flash("\(format.label) ticket · Room \(room.code) · Seat \(t.seatLabel)\(format == .anaglyph3D ? " · grab your red/cyan glasses" : "")")
         return t
     }
 
@@ -270,6 +296,9 @@ final class AppModel: ObservableObject {
                 font: .systemFont(ofSize: 54, weight: .heavy), fg: .white, bg: UIColor(red: 0.1, green: 0.1, blue: 0.16, alpha: 1), border: .orange))
         }
     }
+
+    /// 3D conversion state shown in the screening controls.
+    var stereoStatus: String? { renderer?.stereoStatus(for: session) }
 
     func standUp() {
         game.stand()

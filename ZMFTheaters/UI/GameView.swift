@@ -277,6 +277,12 @@ struct ScreeningControls: View {
         VStack(spacing: 6) {
             HStack(spacing: 12) {
                 Text(session.phaseLabel).font(.caption.bold()).foregroundStyle(.orange)
+                if let st = model.stereoStatus, session.phase == .feature {
+                    Label(st, systemImage: "eyeglasses").font(.caption2).foregroundStyle(.cyan).lineLimit(1)
+                }
+                if session.ticket?.screeningFormat == .fourDX, session.phase == .feature {
+                    Label("4DX", systemImage: "wind").font(.caption2.bold()).foregroundStyle(.cyan)
+                }
                 switch session.phase {
                 case .welcome, .trailer, .ident, .countdown:
                     Button("Skip preshow") { session.skipPreshow() }.font(.caption.bold())

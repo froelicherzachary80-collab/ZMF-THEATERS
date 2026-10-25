@@ -23,7 +23,8 @@ struct AdminView: View {
                     NavigationLink { EconomyAdminView() } label: { Label("Economy Manager", systemImage: "creditcard") }
                     NavigationLink { GraphicsAdminView() } label: { Label("Graphics & Controls", systemImage: "paintbrush") }
                     NavigationLink { PlaybackAdminView() } label: { Label("Playback", systemImage: "play.circle") }
-                    NavigationLink { PlannedView(title: "3D Cinema Settings", version: "v0.5", detail: "ZMF DepthCinema AI: Core ML monocular depth estimation, stereo view synthesis, edge-aware artifact reduction, temporal stabilisation and true red/cyan anaglyph output with depth, separation, convergence and ghosting controls. Until then Rooms 07–12 play genuine 2D — no fake colour filter is applied.") } label: { Label("3D Cinema Settings", systemImage: "eyeglasses") }
+                    NavigationLink { StereoAdminView() } label: { Label("3D Cinema Settings", systemImage: "eyeglasses") }
+                    NavigationLink { FourDXAdminView() } label: { Label("4DX Preview", systemImage: "wind") }
                     NavigationLink { PlannedView(title: "AI Control", version: "v0.3", detail: "Procedural AI moviegoers and employees with names, outfits, personalities and daily schedules — no paid LLM required.") } label: { Label("AI Control", systemImage: "person.3") }
                     NavigationLink { PlannedView(title: "Room Designer", version: "v0.4", detail: "Per-room lighting colour, decoration density and ambience. Genre identity and Room 01's 1900–1999 rule stay fixed.") } label: { Label("Room Designer", systemImage: "paintpalette") }
                 }
@@ -338,5 +339,76 @@ struct PlaybackAdminView: View {
             }
         }
         .navigationTitle("Playback")
+    }
+}
+
+struct StereoAdminView: View {
+    @EnvironmentObject var model: AppModel
+    @EnvironmentObject var settingsStore: SettingsStore
+
+    var body: some View {
+        Form {
+            Section {
+                let d = model.renderer?.depth
+                Label(d?.isAvailable == true ? "Depth model loaded (Depth Anything V2 Small, Core ML, Neural Engine)" : (d?.loadError ?? "Depth model not loaded"),
+                      systemImage: d?.isAvailable == true ? "checkmark.seal.fill" : "exclamationmark.triangle")
+                    .font(.caption)
+                Text("Buy a 3D ticket for any film and it is converted live: monocular depth → left/right view synthesis with edge-aware dilation → temporal stabilisation → red/cyan anaglyph on the GPU. Converted 3D approximates depth; it is not native stereoscopic mastering.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Section("Depth & stereo") {
+                slider("Depth intensity", $settingsStore.settings.depthIntensity, 0.2...2.0, "%.1f×")
+                slider("Stereo separation", $settingsStore.settings.stereoSeparation, 0.003...0.03, "%.3f")
+                slider("Convergence (screen plane)", $settingsStore.settings.convergence, 0...1, "%.2f")
+                slider("Ghosting reduction", $settingsStore.settings.ghostingReduction, 0...1, "%.2f")
+            }
+            Section("Performance") {
+                Picker("Preset", selection: $settingsStore.settings.depthUpdatesPerSecond) {
+                    Text("Battery (4 Hz)").tag(4.0)
+                    Text("Balanced (8 Hz)").tag(8.0)
+                    Text("Smooth (15 Hz)").tag(15.0)
+                    Text("Max (30 Hz)").tag(30.0)
+                }
+                Text("Between depth updates the stabilised map is reused, so the picture itself always runs at full frame rate.").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("3D Cinema Settings")
+    }
+
+    private func slider(_ title: String, _ value: Binding<Double>, _ range: ClosedRange<Double>, _ fmt: String) -> some View {
+        VStack(alignment: .leading) {
+            Text("\(title): \(String(format: fmt, value.wrappedValue))")
+            Slider(value: value, in: range)
+        }
+    }
+}
+
+struct FourDXAdminView: View {
+    @EnvironmentObject var settingsStore: SettingsStore
+
+    var body: some View {
+        Form {
+            Section {
+                Text(FourDX.teaser(settings: settingsStore.settings)).font(.headline).foregroundStyle(.cyan)
+                Text("Preview days: October 27–28, 2026 (New York time). Pick “4DX Preview” when buying a ticket. Effects are driven live by the picture: sustained action → motion seat and rumble, sudden flashes → strobe, seat kick and a smoke burst.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            Section("Effects") {
+                VStack(alignment: .leading) {
+                    Text("Intensity: \(Int(settingsStore.settings.fourDXIntensity * 100))%")
+                    Slider(value: $settingsStore.settings.fourDXIntensity, in: 0...2)
+                }
+                Toggle("iPhone haptics (Taptic Engine rumble)", isOn: $settingsStore.settings.fourDXHaptics)
+                Stepper("4DX ticket: Z$\(settingsStore.settings.fourDXPrice)", value: $settingsStore.settings.fourDXPrice, in: 0...2000, step: 25)
+            }
+            Section("bHaptics TactSuit Air") {
+                Text("The TactSuit Air is driven by ZMF THEATERS+ for Windows through bHaptics Player. bHaptics doesn't offer an iOS SDK, so on iPhone the 4DX rumble uses the built-in Taptic Engine.")
+                    .font(.caption2)
+            }
+            Section("Testing") {
+                Toggle("Enable 4DX now (outside preview days)", isOn: $settingsStore.settings.fourDXForcePreview)
+            }
+        }
+        .navigationTitle("4DX Preview")
     }
 }

@@ -101,6 +101,28 @@ struct MediaItem: Codable, Identifiable, Hashable {
     }
 }
 
+/// How the film is presented for a ticket. 2D stays untouched; 3D runs the
+/// on-device depth model and red/cyan stereo synthesis; 4DX adds motion,
+/// rumble and environmental effects (preview days only).
+enum ScreeningFormat: String, Codable, CaseIterable, Identifiable {
+    case standard2D, anaglyph3D, fourDX
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .standard2D: return "2D"
+        case .anaglyph3D: return "3D (red/cyan)"
+        case .fourDX: return "4DX Preview"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .standard2D: return "rectangle"
+        case .anaglyph3D: return "eyeglasses"
+        case .fourDX: return "wind"
+        }
+    }
+}
+
 enum TicketKind: String, Codable {
     case standard, threeD, vip
 
@@ -132,6 +154,10 @@ struct Ticket: Codable, Identifiable, Hashable {
     var status: TicketStatus = .active
     /// Optional queue of follow-up episodes for continuous TV playback.
     var episodeQueue: [String] = []
+    /// Optional so tickets saved by older versions still decode (nil = 2D).
+    var format: ScreeningFormat?
+
+    var screeningFormat: ScreeningFormat { format ?? .standard2D }
 
     var seatLabel: String { "\(Seating.rowLetter(row))\(seat + 1)" }
 }

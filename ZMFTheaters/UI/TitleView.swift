@@ -27,6 +27,17 @@ struct TitleView: View {
 
                     statusCard
 
+                    HStack(spacing: 10) {
+                        Image(systemName: "wind").font(.title2).foregroundStyle(.cyan)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("ZMF 4DX PREVIEW · OCT 27–28, 2026").font(.headline).foregroundStyle(.cyan)
+                            Text(FourDX.teaser(settings: model.settings)).font(.caption).foregroundStyle(.secondary)
+                            Text("Motion seat, rumble, strobes and fog on iPhone · bHaptics TactSuit Air on Windows").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 12).stroke(Color.cyan.opacity(0.6)))
+
                     HStack(spacing: 14) {
                         ModeCard(title: "Singleplayer", subtitle: "The whole cinema to yourself. Explore, buy a ticket, watch your films.",
                                  symbol: "person.fill", enabled: true) { model.mode = .singleplayer }

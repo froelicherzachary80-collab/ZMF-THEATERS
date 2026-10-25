@@ -99,6 +99,32 @@ final class TextureFactory {
 
     // MARK: Dynamic signage
 
+    /// Lobby teaser poster for the 4DX preview (Oct 27–28, 2026).
+    func fourDXTeaser(active: Bool, line: String) -> MTLTexture? {
+        render(size: CGSize(width: 1000, height: 480)) { ctx, r in
+            let colors = [UIColor(red: 0.02, green: 0.05, blue: 0.12, alpha: 1).cgColor,
+                          UIColor(red: active ? 0.0 : 0.25, green: active ? 0.45 : 0.08, blue: active ? 0.55 : 0.3, alpha: 1).cgColor] as CFArray
+            if let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                ctx.drawLinearGradient(g, start: .zero, end: CGPoint(x: r.width, y: r.height), options: [])
+            }
+            // Wind streaks.
+            UIColor(white: 1, alpha: 0.18).setStroke()
+            ctx.setLineWidth(5)
+            for i in 0..<9 {
+                let y = 40 + CGFloat(i) * 48
+                ctx.move(to: CGPoint(x: 40 + CGFloat(i % 3) * 60, y: y))
+                ctx.addCurve(to: CGPoint(x: r.width - 40, y: y + 20), control1: CGPoint(x: r.width * 0.35, y: y - 40), control2: CGPoint(x: r.width * 0.65, y: y + 50))
+                ctx.strokePath()
+            }
+            Self.drawCentered("ZMF 4DX", in: CGRect(x: 0, y: 40, width: r.width, height: 190), font: .systemFont(ofSize: 170, weight: .black),
+                              color: UIColor(red: 0.3, green: 0.95, blue: 1, alpha: 1), shadow: .cyan)
+            Self.drawCentered("MOTION · RUMBLE · STROBE · FOG · TACTSUIT AIR", in: CGRect(x: 20, y: 240, width: r.width - 40, height: 70),
+                              font: .systemFont(ofSize: 38, weight: .heavy), color: .white)
+            Self.drawCentered(line, in: CGRect(x: 20, y: 330, width: r.width - 40, height: 110),
+                              font: .systemFont(ofSize: 40, weight: .bold), color: UIColor(red: 1, green: 0.85, blue: 0.4, alpha: 1))
+        }
+    }
+
     func doorSign(room: CinemaRoom, film: String?) -> MTLTexture? {
         render(size: CGSize(width: 768, height: 260)) { ctx, r in
             Self.color(room.theme.wall, 0.6).setFill(); ctx.fill(r)

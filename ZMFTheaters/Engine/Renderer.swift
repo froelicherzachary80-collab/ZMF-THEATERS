@@ -44,6 +44,14 @@ final class Renderer {
     private let blurPipeline: MTLRenderPipelineState
     private let compositePipeline: MTLRenderPipelineState
     private let averagePipeline: MTLComputePipelineState
+    private let anaglyphPipeline: MTLComputePipelineState
+    /// ZMF DepthCinema AI (created on first 3D screening — loading the model takes a moment).
+    private(set) lazy var depth = DepthEngine()
+    private var depthMap: MTLTexture?
+    private var depthVersion = -1
+    private var stereoTexture: MTLTexture?
+    private(set) var stereoActive = false
+    let fourDX = FourDXEngine()
     private let depthState: MTLDepthStencilState
     private let depthReadState: MTLDepthStencilState
     private var depthTexture: MTLTexture?
@@ -114,6 +122,9 @@ final class Renderer {
               let avg = try? device.makeComputePipelineState(function: avgFn) else { return nil }
         self.pipeline = pipeline
         self.averagePipeline = avg
+        guard let anaFn = library.makeFunction(name: "anaglyph_convert"),
+              let ana = try? device.makeComputePipelineState(function: anaFn) else { return nil }
+        self.anaglyphPipeline = ana
 
         // Additive light volume for the projector beam.
         pd.label = "ZMF Projector Beam"
@@ -158,7 +169,7 @@ final class Renderer {
         let quadVerts = qb.batches.values.first ?? []
         guard let qbuf = device.makeBuffer(bytes: quadVerts, length: quadVerts.count * MemoryLayout<Vertex>.stride, options: .storageModeShared),
               let cb = device.makeBuffer(bytes: cubeVerts, length: cubeVerts.count * MemoryLayout<Vertex>.stride, options: .storageModeShared),
-              let avgBuf = device.makeBuffer(length: MemoryLayout<Vec4>.stride, options: .storageModeShared),
+              let avgBuf = device.makeBuffer(length: MemoryLayout<Vec4>.stride * 65, options: .storageModeShared),
               let w = factory.solid(Vec4(1, 1, 1, 1)),
               let b = factory.solid(Vec4(0, 0, 0, 1)) else { return nil }
         quad = qbuf
@@ -258,7 +269,9 @@ final class Renderer {
         cmd.addCompletedHandler { _ in sem.signal() }
 
         let activeRoom = session.roomId
+        convertTo3DIfNeeded(cmd, session: session)
         let activeScreen = activeScreenTexture(session: session)
+        apply4DX(session: session, game: game, dt: dt)
 
         // Screen glow: average the image currently on the active screen.
         if let tex = activeScreen, let enc = cmd.makeComputeCommandEncoder() {
@@ -297,6 +310,13 @@ final class Renderer {
             let dim: Float = (id == activeRoom) ? houseLights : 1
             frame.ambient = Vec4(room.theme.light.x, room.theme.light.y, room.theme.light.z, 0) * (0.012 + 0.05 * dim)
             frame.fog = Vec4(room.theme.wall.x * 0.15, room.theme.wall.y * 0.15, room.theme.wall.z * 0.15, settings.fogEnabled ? room.theme.fog * (1.3 - dim * 0.5) : 0)
+            if id == activeRoom, fourDX.running {
+                // 4DX strobes flash the auditorium; smoke bursts thicken the haze.
+                let flash = fourDX.strobe * 0.9
+                frame.ambient += Vec4(flash, flash * 0.95, flash * 0.9, 0)
+                frame.fog.w += fourDX.fogBoost * 0.05
+                frame.fog += Vec4(0.08, 0.08, 0.09, 0) * fourDX.fogBoost
+            }
         }
         if let id = activeRoom, activeScreen != nil, visibleRooms.contains(id) {
             let c = CinemaWorld.screenCenter(id), n = CinemaWorld.screenNormal(id)
@@ -542,6 +562,71 @@ final class Renderer {
         }
     }
 
+    // MARK: 3D conversion
+
+    private func wants3D(_ session: TheaterSession) -> Bool {
+        session.ticket?.screeningFormat == .anaglyph3D && session.screenEngine === session.feature
+    }
+
+    /// Uploads the newest stabilised depth map and synthesises the red/cyan frame.
+    private func convertTo3DIfNeeded(_ cmd: MTLCommandBuffer, session: TheaterSession) {
+        stereoActive = false
+        guard wants3D(session), let video = videoTexture, depth.isAvailable, let map = depth.latest else { return }
+        if map.version != depthVersion {
+            if depthMap == nil || depthMap!.width != map.width || depthMap!.height != map.height {
+                let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .r32Float, width: map.width, height: map.height, mipmapped: false)
+                d.usage = .shaderRead
+                depthMap = device.makeTexture(descriptor: d)
+            }
+            map.values.withUnsafeBytes { raw in
+                depthMap?.replace(region: MTLRegionMake2D(0, 0, map.width, map.height), mipmapLevel: 0,
+                                  withBytes: raw.baseAddress!, bytesPerRow: map.width * MemoryLayout<Float>.stride)
+            }
+            depthVersion = map.version
+        }
+        guard let depthMap else { return }
+        let scale = min(1, 1920 / Double(video.width))
+        let w = max(2, Int(Double(video.width) * scale)), h = max(2, Int(Double(video.height) * scale))
+        if stereoTexture == nil || stereoTexture!.width != w || stereoTexture!.height != h {
+            let d = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: w, height: h, mipmapped: false)
+            d.usage = [.shaderRead, .shaderWrite]
+            d.storageMode = .private
+            stereoTexture = device.makeTexture(descriptor: d)
+        }
+        guard let out = stereoTexture, let enc = cmd.makeComputeCommandEncoder() else { return }
+        var params = Vec4(Float(settings.stereoSeparation * settings.depthIntensity), Float(settings.convergence),
+                          Float(settings.ghostingReduction), Float(max(0.4, 1.6 - settings.depthIntensity * 0.6)))
+        enc.setComputePipelineState(anaglyphPipeline)
+        enc.setTexture(video, index: 0)
+        enc.setTexture(depthMap, index: 1)
+        enc.setTexture(out, index: 2)
+        enc.setBytes(&params, length: MemoryLayout<Vec4>.stride, index: 0)
+        let tg = MTLSize(width: 16, height: 16, depth: 1)
+        enc.dispatchThreadgroups(MTLSize(width: (w + 15) / 16, height: (h + 15) / 16, depth: 1), threadsPerThreadgroup: tg)
+        enc.endEncoding()
+        stereoActive = true
+    }
+
+    /// Human-readable 3D state for the screening controls.
+    func stereoStatus(for session: TheaterSession) -> String? {
+        guard session.ticket?.screeningFormat == .anaglyph3D else { return nil }
+        if !depth.isAvailable { return "3D unavailable (\(depth.loadError ?? "no model")) · playing 2D" }
+        if stereoActive { return String(format: "3D · depth %.0f Hz · wear red/cyan glasses", depth.measuredHz) }
+        return "3D · estimating depth…"
+    }
+
+    // MARK: 4DX
+
+    private func apply4DX(session: TheaterSession, game: CinemaGame, dt: Float) {
+        let want = session.ticket?.screeningFormat == .fourDX && session.phase == .feature && FourDX.isPreviewActive(settings: settings)
+        if want && !fourDX.running { fourDX.start(haptics: settings.fourDXHaptics) }
+        if !want && fourDX.running { fourDX.stop() }
+        let grid = screenAverage.contents().bindMemory(to: Vec4.self, capacity: 65).advanced(by: 1)
+        let forward = game.seatedAt.map { forwardVector(yaw: CinemaWorld.screenYaw($0.room)) } ?? Vec3(0, 0, 1)
+        fourDX.update(grid: fourDX.running ? UnsafePointer(grid) : nil, dt: dt, intensity: Float(settings.fourDXIntensity), seatForward: forward)
+        game.seatMotion = (fourDX.seatOffset, fourDX.seatTilt)
+    }
+
     // MARK: Screen content
 
     private func updateScreenContent(session: TheaterSession, dt: Double) {
@@ -552,6 +637,9 @@ final class Renderer {
                 let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
                 var cv: CVMetalTexture?
                 CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pb, nil, .bgra8Unorm_srgb, w, h, 0, &cv)
+                if session.ticket?.screeningFormat == .anaglyph3D, engine === session.feature {
+                    depth.submit(pb, rate: settings.depthUpdatesPerSecond)
+                }
                 if let cv, let tex = CVMetalTextureGetTexture(cv) {
                     videoTexture = tex
                     retainedCV.append(cv)
@@ -578,7 +666,7 @@ final class Renderer {
 
     private func activeScreenTexture(session: TheaterSession) -> MTLTexture? {
         guard session.isRunning else { return nil }
-        if session.screenEngine != nil { return videoTexture ?? black }
+        if session.screenEngine != nil { return (stereoActive ? stereoTexture : nil) ?? videoTexture ?? black }
         if session.showsIdent { return identTexture }
         return slideTexture
     }
