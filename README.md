@@ -1,12 +1,14 @@
 # ZMF THEATERS+
 
-**AAA-inspired private cinema universe for iPhone, with a Windows 10/11 companion app. Version 0.2.**
+**AAA-inspired private cinema universe for iPhone and Windows 10/11. Version 0.3.**
 
-**Downloads:** the latest builds are attached to the [`v0.2.0-preview` release](../../releases/tag/v0.2.0-preview):
+**Downloads:** the latest builds are attached to the [`v0.3.0-preview` release](../../releases/tag/v0.3.0-preview):
 
 - `ZMFTheaters-unsigned.ipa` for iPhone (see [docs/INSTALL.md](docs/INSTALL.md))
 - `ZMFTheaters.exe` for Windows 10/11 (single file; Windows SmartScreen may warn because the exe isn't code-signed: choose *More info → Run anyway*)
 - `ZMFTheaters-Windows-x64.zip`, the same Windows app as a portable folder
+
+**New in 0.3:** every ticket can be **2D or real converted 3D** (red/cyan glasses), the Windows app is now a **walkable 3D cinema** with lobby, doors and seating, and there is a **ZMF 4DX preview on October 27–28, 2026** with motion seat, strobes, smoke and **bHaptics TactSuit Air** support on Windows. See [docs/3D_AND_4DX.md](docs/3D_AND_4DX.md).
 
 **New in 0.2:** the controls hide while you watch, the renderer has HDR bloom, a projector beam with dust and a curved screen, and you can host **online watch parties with friends** through Jellyfin SyncPlay ([guide](docs/WATCH_PARTY.md)).
 
@@ -43,7 +45,6 @@ The main flow is **connect Jellyfin → choose a movie → buy a ticket → ente
 These features are on the roadmap. Where the UI mentions them, it labels them as planned rather than faking them.
 
 - **Private AI Cinema mode** (NPC moviegoers and staff): v0.3. The mode card is shown but disabled.
-- **ZMF DepthCinema AI red/cyan 3D**: v0.5. Rooms 07–12 currently play **genuine 2D**. No colour filter is applied to pretend it is 3D.
 - **Spatial cinema audio**: v0.4. Audio currently plays through the normal iOS output.
 - **Themed event weeks** (Marvel, Halloween Oct 25–31, Romance, Christmas, Summer, Classic Hollywood, custom): v0.6.
 - **Room Designer** and dynamic shadows, bloom and reflections: v0.4.
@@ -68,7 +69,7 @@ See [docs/INSTALL.md](docs/INSTALL.md) for installing it on your iPhone, and [do
 
 ## Windows app
 
-`windows/ZMFTheaters.Windows` is a native WPF (.NET 8) app. It is **not** the 3D world (that is iPhone-only for now). It is a cinema-styled companion app:
+`windows/ZMFTheaters.Windows` is a native WPF (.NET 8) app with its own **walkable 3D cinema**. Press **ENTER THE CINEMA**, walk with WASD, buy a ticket at the box office (E), follow the arrow to your auditorium, and sit in your seat (E). Also included:
 
 - **Now Showing:** the same 72-hour rotation rules as the iPhone app.
 - **Library:** your movies and TV, across all your servers.

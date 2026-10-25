@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0: Real 3D conversion, Windows 3D cinema, 4DX teaser (2026-10-25)
+
+### Added
+- **Choose 2D or 3D for every ticket** (iPhone and Windows). 2D plays exactly as mastered. 3D runs **ZMF DepthCinema AI**: monocular depth with **Depth Anything V2 Small**, then normalisation with a smoothed range, temporal stabilisation, edge-aware depth dilation, depth-image-based left/right view synthesis, and an optimised red/cyan anaglyph with adjustable ghosting reduction.
+  - iPhone: Apple's Core ML model runs on the Neural Engine through Vision, and the stereo synthesis runs in a Metal compute kernel.
+  - Windows: the ONNX model runs on DirectML (any DX12 GPU, with a CPU fallback). It is downloaded once to `%APPDATA%`.
+  - Settings: depth intensity, stereo separation, convergence, ghosting reduction, and performance presets for the depth update rate.
+- **Windows: a walkable 3D cinema** (WPF 3D). It has the lobby (marquee, Now Showing posters, box office, concessions, kiosks, 4DX teaser) and the hall with 12 sliding doors. Each of the 12 themed auditoriums has stadium seating, a screen, curtains and sconces. Buy tickets at the in-world box office with a seat map. A guidance arrow leads to your seat. Doors only open with a ticket. Sitting starts the preshow, the house lights dim, and the film plays on the in-world screen with light spill. There is also a fullscreen picture mode and auto-hiding controls.
+- **ZMF 4DX preview teaser for October 27–28, 2026**:
+  - Pick the 4DX format: Z$400.
+  - Motion seat, rumble, strobes and smoke bursts are driven by motion and brightness analysis of the picture.
+  - iPhone: Taptic Engine rumble and impacts.
+  - Windows: **bHaptics TactSuit Air** through bHaptics Player's local WebSocket API.
+  - Teaser posters appear in the lobby and on the title screens.
+  - Admin "Enable 4DX now" switch for testing.
+- CI downloads the Core ML depth model into the iPhone build. It also runs a headless ONNX 3D self-test on Windows and screenshots both cinemas.
+
+### Changed
+- Admin → 3D Cinema Settings is now a working panel instead of a "planned" placeholder.
+- The Windows theater window is replaced by the 3D cinema.
+
 ## 0.2.0: Immersion, watch parties and Windows (2026-10-24)
 
 ### Added
