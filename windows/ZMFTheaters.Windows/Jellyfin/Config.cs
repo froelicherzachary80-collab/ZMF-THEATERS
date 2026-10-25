@@ -47,6 +47,12 @@ public sealed class AppConfig
     public string DeviceId { get; set; } = Guid.NewGuid().ToString("N");
     public int Volume { get; set; } = 85;
     public bool Preshow { get; set; } = true;
+    /// ZMF CASH (fictional) for the Windows box office.
+    public int Balance { get; set; } = 5000;
+    public int Popcorn { get; set; }
+    /// Admin testing: allow 4DX outside the Oct 27–28 preview days.
+    public bool Force4DX { get; set; }
+    public bool AllDoorsUnlocked { get; set; }
 
     static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZMFTheaters");
     static string FilePath => Path.Combine(Dir, "config.json");

@@ -9,7 +9,7 @@
     <AssemblyName>ZMFTheaters</AssemblyName>
     <RootNamespace>ZMFTheaters</RootNamespace>
     <ApplicationIcon>Assets\zmf.ico</ApplicationIcon>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Product>ZMF THEATERS+ for Windows</Product>
     <Company>ZMF</Company>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -21,6 +21,7 @@
     <PackageReference Include="LibVLCSharp.WPF" Version="3.9.0" />
     <PackageReference Include="VideoLAN.LibVLC.Windows" Version="3.0.21" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.20.1" />
   </ItemGroup>
 
   <ItemGroup>

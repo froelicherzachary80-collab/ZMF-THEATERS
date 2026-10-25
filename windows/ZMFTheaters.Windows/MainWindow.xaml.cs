@@ -27,7 +27,7 @@ public partial class MainWindow : Window
     string libraryMode = "Movies";
 
     SyncPlayClient? party;
-    TheaterWindow? theater;
+    CinemaWindow? cinema;
 
     public MainWindow() => InitializeComponent();
 
@@ -45,6 +45,8 @@ public partial class MainWindow : Window
 
     async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        Force4DXBox.IsChecked = config.Force4DX;
+        TeaserText.Text = FourDXPreview.Teaser(config.Force4DX);
         RefreshServerList();
         if (config.Servers.Count == 0) { Show("Servers"); Status("Add your Jellyfin server to get started."); return; }
         await SyncAsync();
@@ -142,15 +144,10 @@ public partial class MainWindow : Window
     {
         if (ChosenPlayable() is not MediaEntry m) return;
         DetailOverlay.Visibility = Visibility.Collapsed;
-        double start = 0;
-        if (m.ResumeTicks > 600_000_000)
-        {
-            var at = TimeSpan.FromSeconds(m.ResumeTicks / 10_000_000.0);
-            if (MessageBox.Show(this, $"Resume “{m.Title}” at {at:h\\:mm\\:ss}?", "ZMF THEATERS+", MessageBoxButton.YesNo) == MessageBoxResult.Yes)
-                start = at.TotalSeconds;
-        }
-        OpenTheater(m, start, partyMode: false, preshow: config.Preshow && start == 0);
+        OpenCinema(preselect: m);
     }
+
+    void OnEnterCinema(object sender, RoutedEventArgs e) => OpenCinema();
 
     async void OnHost(object sender, RoutedEventArgs e)
     {
@@ -159,22 +156,30 @@ public partial class MainWindow : Window
         try
         {
             await EnsurePartyAsync(m.Server);
-            OpenTheater(m, 0, partyMode: true, preshow: false);
+            OpenCinema(partyFilm: m, partyStart: 0);
             await party!.HostAsync(m.Id, m.DisplayTitle, 0);
             Status("Watch party started — friends can join from Watch Parties.");
         }
         catch (Exception ex) { Status("Couldn't start the party: " + ex.Message); }
     }
 
-    // MARK: Theater
+    // MARK: Cinema
 
-    void OpenTheater(MediaEntry m, double start, bool partyMode, bool preshow)
+    /// Opens the walkable 3D cinema (lobby → box office → hall → auditorium).
+    void OpenCinema(MediaEntry? preselect = null, MediaEntry? partyFilm = null, double partyStart = 0)
     {
-        theater?.Close();
-        var t = new TheaterWindow(Client(m.Server), m, start, partyMode ? party : null, preshow, config);
-        t.Closed += (_, _) => { if (theater == t) theater = null; };
-        theater = t;
-        t.Show();
+        cinema?.Close();
+        var w = new CinemaWindow(config, Client, catalog, preselect, partyFilm != null ? party : null, partyFilm, partyStart);
+        w.Closed += (_, _) => { if (cinema == w) cinema = null; };
+        cinema = w;
+        w.Show();
+    }
+
+    void On4DXToggle(object sender, RoutedEventArgs e)
+    {
+        config.Force4DX = Force4DXBox.IsChecked == true;
+        config.Save();
+        TeaserText.Text = FourDXPreview.Teaser(config.Force4DX);
     }
 
     // MARK: Watch parties
@@ -188,20 +193,20 @@ public partial class MainWindow : Window
         p.MembersChanged += () => Dispatcher.BeginInvoke(() =>
         {
             LeaveButton.IsEnabled = p.InGroup;
-            theater?.SetPartyMembers(p.Members);
+            cinema?.SetPartyMembers(p.Members);
         });
         p.PlayQueue += (itemId, start) => Dispatcher.BeginInvoke(async () =>
         {
-            if (theater != null && theater.ItemId == itemId)
+            if (cinema != null && cinema.ItemId == itemId)
             {
-                theater.PartyAlign(start);
+                cinema.PartyAlign(start);
                 return;
             }
             var entry = catalog.FirstOrDefault(c => c.Id == itemId && c.Server.Id == s.Id) ?? await Client(s).ItemAsync(s, itemId);
-            if (entry != null) OpenTheater(entry, start, partyMode: true, preshow: false);
+            if (entry != null) OpenCinema(partyFilm: entry, partyStart: start);
             else Status("The party's film isn't available to your account.");
         });
-        p.Command += (cmd, when, pos) => Dispatcher.BeginInvoke(() => theater?.PartyCommand(cmd, when, pos));
+        p.Command += (cmd, when, pos) => Dispatcher.BeginInvoke(() => cinema?.PartyCommand(cmd, when, pos));
         await p.ConnectAsync();
         party = p;
     }
@@ -299,7 +304,7 @@ public partial class MainWindow : Window
 
     protected override async void OnClosed(EventArgs e)
     {
-        theater?.Close();
+        cinema?.Close();
         if (party != null) await party.DisposeAsync();
         base.OnClosed(e);
         Application.Current.Shutdown();

@@ -123,6 +123,7 @@ final class AppModel: ObservableObject {
             let item = MediaItem(serverAccountId: UUID(), itemId: "local:" + file.path, kind: .movie, title: "3D Conversion Test", year: 2026)
             let ticket = Ticket(mediaId: item.id, title: item.title, roomId: 9, row: 3, seat: 3, showtime: nil, isPrivate: true,
                                 kind: .threeD, price: 0, format: .anaglyph3D)
+            settingsStore.settings.autoHideControls = false   // keep the 3D status visible for the CI screenshot
             game.debugPlace(CinemaWorld.seatPosition(room: 9, row: 3, seat: 3), yaw: CinemaWorld.screenYaw(9), pitch: 0)
             game.sit(room: 9, row: 3, seat: 3)
             session.begin(ticket: ticket, item: item, resumeAt: nil, library: library, settings: settings, skipPreshow: true)

@@ -141,7 +141,7 @@ public sealed class MeshBuilder3D
         {
             mesh.Freeze();
             var model = new GeometryModel3D(mesh, mat) { BackMaterial = mat };
-            model.Freeze();
+            if (mat.IsFrozen) model.Freeze();   // dynamic textures (posters, screens) stay editable
             g.Children.Add(model);
         }
         return g;
