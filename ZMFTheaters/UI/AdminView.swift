@@ -463,6 +463,22 @@ struct FourDXAdminView: View {
                     Slider(value: $settingsStore.settings.fourDXIntensity, in: 0...1)
                 }
                 Toggle("iPhone haptics (Taptic Engine rumble)", isOn: $settingsStore.settings.fourDXHaptics)
+                VStack(alignment: .leading) {
+                    Text("Virtual chair travel: \(Int(settingsStore.settings.fourDXSeatTravel * 100))%")
+                    Slider(value: $settingsStore.settings.fourDXSeatTravel, in: 0...1.5)
+                }
+                Text("Seat acceleration and banking are gentle and bounded; physical motion chairs are not connected.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                Toggle("Mist (virtual atmosphere)", isOn: $settingsStore.settings.fourDXVirtualMist)
+                Toggle("Snow particles", isOn: $settingsStore.settings.fourDXVirtualSnow)
+                Toggle("Floating ash particles", isOn: $settingsStore.settings.fourDXVirtualAsh)
+                Toggle("Volumetric fog", isOn: $settingsStore.settings.fourDXVirtualFog)
+                VStack(alignment: .leading) {
+                    Text("Atmosphere intensity: \(Int(settingsStore.settings.fourDXAtmosphereStrength * 100))%")
+                    Slider(value: $settingsStore.settings.fourDXAtmosphereStrength, in: 0...1)
+                }
+                Text("Atmospheres cycle automatically as a *simulated demonstration*. They are not yet detected from individual film scenes. No real mist, snow or smoke hardware is activated.")
+                    .font(.caption2).foregroundStyle(.secondary)
                 Stepper("4DX ticket: Z$\(settingsStore.settings.fourDXPrice)", value: $settingsStore.settings.fourDXPrice, in: 0...2000, step: 25)
             }
             Section("bHaptics TactSuit Air") {
