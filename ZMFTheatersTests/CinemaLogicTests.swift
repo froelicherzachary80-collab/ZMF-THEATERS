@@ -104,6 +104,54 @@ final class CinemaLogicTests: XCTestCase {
         engine.stop()
     }
 
+    func testYouTubeTrailerLinkValidationAndSecurity() {
+        let id = "dQw4w9WgXcQ"
+        XCTAssertEqual(PreshowYouTubeTrailer.videoID(from: "https://www.youtube.com/watch?v=\(id)&t=3"), id)
+        XCTAssertEqual(PreshowYouTubeTrailer.videoID(from: "https://youtu.be/\(id)"), id)
+        XCTAssertEqual(PreshowYouTubeTrailer.videoID(from: "https://m.youtube.com/shorts/\(id)"), id)
+        XCTAssertEqual(PreshowYouTubeTrailer.videoID(from: "https://www.youtube-nocookie.com/embed/\(id)"), id)
+        XCTAssertNil(PreshowYouTubeTrailer.videoID(from: "http://www.youtube.com/watch?v=\(id)"))
+        XCTAssertNil(PreshowYouTubeTrailer.videoID(from: "https://youtube.com.evil.example/watch?v=\(id)"))
+        XCTAssertNil(PreshowYouTubeTrailer.videoID(from: "https://www.youtube.com/watch?v=hello"))
+        XCTAssertNil(PreshowYouTubeTrailer.videoID(from: "javascript:alert('x')"))
+        XCTAssertNil(PreshowYouTubeTrailer.videoID(from: "https://example.com/watch?v=\(id)"))
+    }
+
+    func testNewTrailerTogglesAndAtmosphereSettingsSurviveCoding() throws {
+        var settings = AppSettings()
+        settings.standardTrailersEnabled = false
+        settings.fourDXTrailersEnabled = true
+        settings.fourDXVirtualAsh = false
+        settings.youtubeTrailers = [
+            PreshowYouTubeTrailer(title: "Space Adventure", videoID: "dQw4w9WgXcQ", presentation: .fourDX)
+        ]
+        let decoded = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(settings))
+        XCTAssertFalse(decoded.standardTrailersEnabled)
+        XCTAssertTrue(decoded.fourDXTrailersEnabled)
+        XCTAssertFalse(decoded.fourDXVirtualAsh)
+        XCTAssertEqual(decoded.youtubeTrailers.first?.presentation, .fourDX)
+    }
+
+    func testVirtualAtmosphereMotionRampsAndResetsSafely() {
+        let engine = FourDXEngine()
+        engine.start(haptics: false)
+        for frame in 0..<60 {
+            engine.updateTrailerPreview(dt: 1 / 30, timestamp: Double(frame) / 30,
+                                        intensity: 0.8, seatForward: Vec3(0, 0, 1))
+        }
+        XCTAssertGreaterThan(engine.mist, 0.1)
+        XCTAssertEqual(engine.strobe, 0)
+        XCTAssertTrue(engine.seatOffset.x.isFinite)
+        XCTAssertLessThan(engine.seatOffset.y.magnitude, 0.25)
+        XCTAssertLessThan(engine.seatTilt.x.magnitude, 0.2)
+        engine.stop()
+        XCTAssertEqual(engine.mist, 0)
+        XCTAssertEqual(engine.snow, 0)
+        XCTAssertEqual(engine.ash, 0)
+        XCTAssertEqual(engine.virtualFog, 0)
+        XCTAssertEqual(engine.seatTilt, .zero)
+    }
+
     func testRotationFillsTwelveRoomsWithoutDuplicatesAndRespectsEras() {
         let s = AppSettings()
         let (assign, notes) = RotationDirector.select(candidates: library(), index: 5, settings: s, recent: [])
