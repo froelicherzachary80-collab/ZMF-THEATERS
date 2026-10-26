@@ -150,6 +150,9 @@ struct GameView: View {
             topBar
             Spacer()
             if game.hud.seated && session.isRunning {
+                if session.ticket?.screeningFormat.usesBeyondScreen == true {
+                    BeyondScreenControls().padding(.bottom, 5)
+                }
                 ScreeningControls(engine: session.feature, fullscreen: $fullscreen, openParty: { sheet = .party })
                     .padding(.bottom, 6)
             }
