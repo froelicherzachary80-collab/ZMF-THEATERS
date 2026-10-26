@@ -106,6 +106,11 @@ final class FourDXEngine {
     private(set) var seatTilt = Vec2.zero
     private(set) var motionKind: FourDXMotionKind = .engineRumble
     private(set) var cueSource = "Live picture motion"
+    private(set) var mist: Float = 0
+    private(set) var snow: Float = 0
+    private(set) var ash: Float = 0
+    private(set) var virtualFog: Float = 0
+    private(set) var inTrailerPreview = false
 
     private let cache = FourDXCueCache()
     private var mediaID: String?
@@ -188,6 +193,8 @@ final class FourDXEngine {
         fogBoost = 0
         seatOffset = .zero
         seatTilt = .zero
+        mist = 0; snow = 0; ash = 0; virtualFog = 0
+        inTrailerPreview = false
     }
 
     func stop() {
@@ -288,15 +295,24 @@ final class FourDXEngine {
         let forward = simd_length_squared(seatForward) > 0.01 ? simd_normalize(seatForward) : Vec3(0, 0, 1)
         let horizontal = simd_cross(forward, Vec3(0, 1, 0))
         let right = simd_length_squared(horizontal) > 0.00001 ? simd_normalize(horizontal) : Vec3(1, 0, 0)
-        let targetTilt = Vec2(-velocity.y * 0.05 + sinf(t * 6) * rumble * 0.01,
-                              -velocity.x * 0.07 + sinf(t * 3.8) * rumble * 0.015)
-        let targetOffset = right * (velocity.x * 0.035) +
-            Vec3(0, velocity.y * 0.045 + sinf(t * 17) * rumble * 0.012, 0) +
-            forward * (-energy * 0.025)
+        // Gradual movement in the simulated chair with bounded pitch, bank,
+        // vertical lift, forward thrust and vibration, not abrupt screen shake.
+        let bank = max(-0.08, min(0.08, -velocity.x * 0.34))
+        let pitch = max(-0.07, min(0.07, -velocity.y * 0.25))
+        let targetTilt = Vec2(pitch + sinf(t * 6) * rumble * 0.018,
+                              bank + sinf(t * 3.8) * rumble * 0.02)
+        let targetOffset = right * (velocity.x * 0.20) +
+            Vec3(0, velocity.y * 0.20 + sinf(t * 7) * rumble * 0.045, 0) +
+            forward * (-energy * 0.17)
         seatTilt += (targetTilt - seatTilt) * smooth
         seatOffset += (targetOffset - seatOffset) * smooth
         strobe = 0 // No flashing from brightness alone.
-        fogBoost = 0 // No atmospheric effects without a classifier.
+        fogBoost = 0 // No bright flash or hazardous physical effect is emitted.
+
+        // Sequence is a visual demonstration, not scene classification.
+        // Every preset takes turns through a 56-second loop and is intensity-
+        // modulated. Later semantic recognition can select the actual cues.
+        updateAtmosphere(timestamp: seconds, activity: rumble)
 
         if let c = cue, grid != nil, seconds - lastRecorded >= 0.48, mediaID != nil {
             stored.append(FourDXMotionCue(timestamp: seconds, energy: c.energy, flowX: c.flowX, flowY: c.flowY))
@@ -311,6 +327,46 @@ final class FourDXEngine {
             lastHapticUpdate = seconds
             try? p.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl,
                                 value: min(0.35, rumble), relativeTime: 0)], atTime: CHHapticTimeImmediate)
+        }
+    }
+
+    private func updateAtmosphere(timestamp: Double, activity: Float) {
+        let scene = Int(max(0, timestamp) / 14) % 4
+        let pulse = 0.35 + 0.65 * max(0, min(1, (activity + 0.07) * 5))
+        let smoothing: Float = 0.12
+        mist += ((scene == 0 ? pulse : 0) - mist) * smoothing
+        snow += ((scene == 1 ? pulse : 0) - snow) * smoothing
+        ash += ((scene == 2 ? pulse : 0) - ash) * smoothing
+        virtualFog += ((scene == 3 ? pulse : 0) - virtualFog) * smoothing
+    }
+
+    /// A gentle *scripted* preview motion when a YouTube iframe is playing.
+    /// Never claims video pixels or audio have been analysed.
+    func updateTrailerPreview(dt: Float, timestamp: Double, intensity: Float, seatForward: Vec3) {
+        guard running else { return }
+        if !inTrailerPreview { resetMotion(); inTrailerPreview = true }
+        let step = dt.isFinite ? max(0, min(0.1, dt)) : 0
+        let t = Float(timestamp.isFinite ? max(0, timestamp) : 0)
+        let k = intensity.isFinite ? max(0, min(1, intensity)) : 0
+        let forward = simd_length_squared(seatForward) > 0.01 ? simd_normalize(seatForward) : Vec3(0, 0, 1)
+        let horizontal = simd_cross(forward, Vec3(0, 1, 0))
+        let right = simd_length_squared(horizontal) > 0.00001 ? simd_normalize(horizontal) : Vec3(1, 0, 0)
+        let alpha = 1 - expf(-step * 3.5)
+        let targetOffset = right * (0.045 * sinf(t * 0.6) * k) +
+            Vec3(0, 0.035 * sinf(t * 1.25) * k, 0) +
+            forward * (0.025 * sinf(t * 0.4) * k)
+        let targetTilt = Vec2(0.045 * sinf(t * 0.6) * k, 0.065 * sinf(t * 0.45) * k)
+        seatOffset += (targetOffset - seatOffset) * alpha
+        seatTilt += (targetTilt - seatTilt) * alpha
+        rumble += ((0.05 + 0.04 * abs(sinf(t * 1.5))) * k - rumble) * alpha
+        motionKind = .turbulence
+        strobe = 0
+        updateAtmosphere(timestamp: timestamp, activity: rumble)
+        if let p = rumblePlayer, Double(t) - lastHapticUpdate > 0.075 {
+            lastHapticUpdate = Double(t)
+            try? p.sendParameters([CHHapticDynamicParameter(
+                parameterID: .hapticIntensityControl, value: min(0.2, rumble), relativeTime: 0)],
+                atTime: CHHapticTimeImmediate)
         }
     }
 }
