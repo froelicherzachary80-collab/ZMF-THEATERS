@@ -87,6 +87,7 @@ final class Renderer {
 
     weak var game: CinemaGame?
     weak var session: TheaterSession?
+    weak var youtubeCinema: YouTubeCinemaSession?
     var settings = AppSettings()
     var thermalThrottle = false
     /// Names of friends in the current watch party (shown seated beside you).
@@ -236,7 +237,8 @@ final class Renderer {
         game.update(dt: dt)
 
         // House lights fade slowly like a real auditorium dimmer.
-        houseLights += (session.targetLights - houseLights) * min(1, dt * 0.45)
+        let targetLight: Float = youtubeCinema?.isOpen == true ? 0.12 : session.targetLights
+        houseLights += (targetLight - houseLights) * min(1, dt * 0.45)
 
         updateScreenContent(session: session, dt: Double(dt))
 
@@ -268,7 +270,7 @@ final class Renderer {
         let sem = inflight
         cmd.addCompletedHandler { _ in sem.signal() }
 
-        let activeRoom = session.roomId
+        let activeRoom = youtubeCinema?.isOpen == true ? game.seatedAt?.room : session.roomId
         convertTo3DIfNeeded(cmd, session: session)
         let activeScreen = activeScreenTexture(session: session)
         apply4DX(session: session, game: game, dt: dt)
@@ -706,7 +708,9 @@ final class Renderer {
             session.feature.player.rate > 0 && FourDX.isPreviewActive(settings: settings)
         let trailer4DX = session.activeYouTubeTrailer?.presentation == .fourDX &&
             session.phase == .trailer && session.youtubeIsPlaying && settings.fourDXTrailersEnabled
-        let want = feature4DX || trailer4DX
+        let youTube4DX = youtubeCinema?.isOpen == true &&
+            youtubeCinema?.playing == true && youtubeCinema?.preset != .off
+        let want = feature4DX || trailer4DX || youTube4DX
         if feature4DX, let ticket = session.ticket {
             fourDX.beginMedia(id: ticket.mediaId, duration: session.feature.duration)
         }
@@ -714,7 +718,12 @@ final class Renderer {
         if !want && fourDX.running { fourDX.stop() }
         let grid = screenAverage.contents().bindMemory(to: Vec4.self, capacity: 65).advanced(by: 1)
         let forward = game.seatedAt.map { forwardVector(yaw: CinemaWorld.screenYaw($0.room)) } ?? Vec3(0, 0, 1)
-        if trailer4DX {
+        if youTube4DX, let youtubeCinema {
+            fourDX.updateYouTubeCinema(dt: dt, timestamp: youtubeCinema.seconds,
+                  intensity: Float(settings.fourDXIntensity), seatForward: forward,
+                  preset: youtubeCinema.preset, bpm: youtubeCinema.bpm,
+                  cuts: youtubeCinema.cutMarks)
+        } else if trailer4DX {
             fourDX.updateTrailerPreview(dt: dt, timestamp: session.youtubeTime,
                                        intensity: Float(settings.fourDXIntensity), seatForward: forward)
         } else {
