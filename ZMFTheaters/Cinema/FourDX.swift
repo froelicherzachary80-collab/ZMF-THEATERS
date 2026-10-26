@@ -182,6 +182,7 @@ final class FourDXEngine {
         lastTimestamp = nil
         previousGrid = [Float](repeating: 0, count: 64)
         velocity = .zero
+        lastHapticUpdate = -1
         rumble = 0
         strobe = 0
         fogBoost = 0
@@ -255,9 +256,21 @@ final class FourDXEngine {
         lastTimestamp = seconds
         cutHold = max(0, cutHold - step)
         var cue = analyse(grid)
-        if !replay.isEmpty, let closest = replay.min(by: { abs($0.timestamp - seconds) < abs($1.timestamp - seconds) }),
-           abs(closest.timestamp - seconds) < 0.38 {
-            cue = closest
+        // Binary search keeps repeated playback cheap even for a long movie.
+        if !replay.isEmpty {
+            var low = 0, high = replay.count
+            while low < high {
+                let mid = low + (high - low) / 2
+                if replay[mid].timestamp < seconds { low = mid + 1 } else { high = mid }
+            }
+            var closest: FourDXMotionCue?
+            if low < replay.count { closest = replay[low] }
+            if low > 0, let c = closest {
+                if abs(replay[low - 1].timestamp - seconds) < abs(c.timestamp - seconds) {
+                    closest = replay[low - 1]
+                }
+            } else if low > 0 { closest = replay[low - 1] }
+            if let c = closest, abs(c.timestamp - seconds) < 0.38 { cue = c }
         }
         if cutHold > 0 { cue = nil }
         let energy = min(0.25, max(0, cue?.energy ?? 0)) * strength
@@ -273,7 +286,8 @@ final class FourDXEngine {
         velocity += (Vec2(sx, sy) - velocity) * smooth
         let t = Float(seconds)
         let forward = simd_length_squared(seatForward) > 0.01 ? simd_normalize(seatForward) : Vec3(0, 0, 1)
-        let right = simd_normalize(simd_cross(forward, Vec3(0, 1, 0)))
+        let horizontal = simd_cross(forward, Vec3(0, 1, 0))
+        let right = simd_length_squared(horizontal) > 0.00001 ? simd_normalize(horizontal) : Vec3(1, 0, 0)
         let targetTilt = Vec2(-velocity.y * 0.05 + sinf(t * 6) * rumble * 0.01,
                               -velocity.x * 0.07 + sinf(t * 3.8) * rumble * 0.015)
         let targetOffset = right * (velocity.x * 0.035) +
