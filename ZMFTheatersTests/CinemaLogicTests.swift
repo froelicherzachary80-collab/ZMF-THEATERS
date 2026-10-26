@@ -188,6 +188,52 @@ final class CinemaLogicTests: XCTestCase {
         XCTAssertEqual(engine.seatOffset, .zero)
     }
 
+    func testYouTubePlayerIsProjectedOntoActualRoomNineScreen() {
+        let room = 9
+        let seat = CinemaWorld.seatPosition(room: room, row: 4, seat: 3)
+        let eye = seat + Vec3(0, 1.12, 0)
+        let target = CinemaWorld.screenCenter(room)
+        let camera = CinemaGame.CameraState(eye: eye, target: target)
+        let viewport = CGSize(width: 844, height: 390)
+        guard let rect = CinemaScreenProjection.projectedRect(
+            room: room, camera: camera, viewport: viewport, verticalFOV: 55) else {
+            XCTFail("Screen must be visible from ticketed Room 09 seat")
+            return
+        }
+        XCTAssertGreaterThan(rect.width, 100)
+        XCTAssertGreaterThan(rect.height, 40)
+        XCTAssertEqual(rect.midX, viewport.width / 2, accuracy: 100)
+        XCTAssertEqual(rect.midY, viewport.height / 2, accuracy: 100)
+    }
+
+    func testYouTubeScreenProjectionRejectsWrongCameraDirection() {
+        let room = 9
+        let seat = CinemaWorld.seatPosition(room: room, row: 4, seat: 3)
+        let eye = seat + Vec3(0, 1.12, 0)
+        let target = CinemaWorld.screenCenter(room)
+        let away = CinemaGame.CameraState(eye: eye, target: eye + (eye - target))
+        XCTAssertNil(CinemaScreenProjection.projectedRect(
+            room: room, camera: away,
+            viewport: CGSize(width: 844, height: 390), verticalFOV: 55))
+        XCTAssertNil(CinemaScreenProjection.projectedRect(
+            room: room, camera: away,
+            viewport: CGSize(width: 0, height: 390), verticalFOV: 55))
+    }
+
+    func testRecenterRestoresFirstPersonViewFacingScreen() {
+        let game = CinemaGame()
+        let room = 9
+        game.debugPlace(CinemaWorld.seatPosition(room: room, row: 4, seat: 3),
+                        yaw: CinemaWorld.screenYaw(room), pitch: 0)
+        game.sit(room: room, row: 4, seat: 3)
+        game.cameraMode = .thirdPerson
+        game.lookDelta = Vec2(200, 30)
+        game.recenterCinemaScreen()
+        XCTAssertEqual(game.cameraMode, .firstPerson)
+        XCTAssertEqual(game.yaw, CinemaWorld.screenYaw(room), accuracy: 0.001)
+        XCTAssertTrue(game.pitch.isFinite)
+    }
+
     func testRotationFillsTwelveRoomsWithoutDuplicatesAndRespectsEras() {
         let s = AppSettings()
         let (assign, notes) = RotationDirector.select(candidates: library(), index: 5, settings: s, recent: [])
