@@ -934,14 +934,18 @@ final class Renderer {
             fourDX.updateTrailerPreview(dt: dt, timestamp: session.youtubeTime,
                                        intensity: Float(settings.fourDXIntensity), seatForward: forward)
         } else {
-            let genreMotion: Float = (feature4DX &&
-                session.ticket?.screeningFormat.usesBeyondScreen == true)
-                ? (beyondScreen?.motionEnabled == true ? (beyondScreen?.genre.motionScale ?? 0.45) : 0)
+            let beyondMovie = feature4DX &&
+                session.ticket?.screeningFormat.usesBeyondScreen == true
+            let genreMotion: Float = beyondMovie
+                ? (settings.beyondScreenMotion ? (beyondScreen?.genre.motionScale ?? 0.45) : 0)
                 : 1
+            let genreResponse: Float = beyondMovie
+                ? (beyondScreen?.genre.responseRate ?? 5) : 5
             fourDX.update(grid: feature4DX ? UnsafePointer(grid) : nil, dt: dt,
                           intensity: Float(settings.fourDXIntensity) * genreMotion,
                           seatForward: forward,
-                          timestamp: session.feature.player.currentTime().seconds)
+                          timestamp: session.feature.player.currentTime().seconds,
+                          responseRate: genreResponse)
         }
         let travel = Float(max(0, min(1.5, settings.fourDXSeatTravel)))
         game.seatMotion = (fourDX.seatOffset * travel, fourDX.seatTilt * travel)
