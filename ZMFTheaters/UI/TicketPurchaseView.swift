@@ -113,6 +113,7 @@ struct TicketPurchaseView: View {
         case .anaglyph3D: return "ZMF DepthCinema AI estimates depth on-device and converts the film to red/cyan 3D. Wear red (left) / cyan (right) glasses. Converted 3D is an approximation, not native 3D."
         case .fourDX: return "Automatic gentle motion from picture analysis. Semantic effects are still in development."
         case .fourDX3D: return "AI red/cyan depth conversion plus automatic gentle motion. Semantic effects are still in development."
+        case .beyondScreen4DX: return "BEYONDSCREEN 4DX: on-device Vision classifies accessible movie frames (when supported), selecting original underwater, flight, forest, romance, haunted or cosmic theater worlds. Atmosphere, procedural figures and genre-aware safe motion surround your seat. Approximate red/cyan 3D included; not a photorealistic recreation of movie characters."
         }
     }
 
