@@ -221,6 +221,17 @@ enum WorldGeometry {
             b.sign(center: Vec3(CinemaWorld.rowX(r), y, W - 0.02), normal: Vec3(0, 0, -1), width: 0.45, height: 0.45, mat: .glowTex("row.\(r)", 1.2))
         }
 
+        // Visible but virtual premium 4DX environmental equipment.
+        // Capped to simple batched meshes to keep decoding the film first.
+        for side in [Float(0.24), W - 0.24] {
+            for p in [Float(6), 11, 16, 21] {
+                let floor = CinemaWorld.localGround(p)
+                b.box(center: Vec3(p, floor + 2.1, side), size: Vec3(0.48, 0.3, 0.2),
+                      color: rgb(0.075, 0.085, 0.1), mat: .lit(rough: 0.42, metal: 0.7))
+                b.box(center: Vec3(p, floor + 2.1, side), size: Vec3(0.14, 0.14, 0.27),
+                      color: rgb(0.23, 0.28, 0.34), mat: .lit(rough: 0.28, metal: 0.75))
+            }
+        }
         buildSeats(room, b)
         decorate(room, b)
         b.xf = .identity
@@ -242,6 +253,22 @@ enum WorldGeometry {
                 b.box(Vec3(x - 0.42, fl + 0.3, z - 0.42), Vec3(x + 0.35, fl + 0.52, z + 0.42), color: col, mat: .lit(rough: 0.8))
                 b.box(Vec3(x + 0.3, fl + 0.4, z - 0.42), Vec3(x + 0.52, fl + 1.2, z + 0.42), color: col, mat: .lit(rough: 0.8))
                 b.box(Vec3(x - 0.35, fl + 0.3, z - 0.52), Vec3(x + 0.45, fl + 0.75, z - 0.42), color: frame, mat: .lit(rough: 0.4))
+                // Virtual motion platform: four supports, rails, actuator
+                // shrouds and mounting hardware under each premium chair.
+                let chassis = rgb(0.13, 0.17, 0.2)
+                let metal = MaterialKey.lit(rough: 0.35, metal: 0.75)
+                for dx in [-0.27, 0.26] as [Float] {
+                    for dz in [-0.26, 0.26] as [Float] {
+                        b.box(center: Vec3(x + dx, fl + 0.13, z + dz),
+                              size: Vec3(0.055, 0.26, 0.055), color: rgb(0.48, 0.52, 0.56), mat: metal)
+                    }
+                }
+                b.box(center: Vec3(x - 0.05, fl + 0.08, z),
+                      size: Vec3(0.65, 0.09, 0.76), color: chassis, mat: metal)
+                b.box(center: Vec3(x - 0.05, fl + 0.26, z),
+                      size: Vec3(0.61, 0.07, 0.69), color: chassis, mat: metal)
+                b.box(center: Vec3(x - 0.38, fl + 0.43, z - 0.49),
+                      size: Vec3(0.08, 0.1, 0.1), color: rgb(0.58, 0.62, 0.67), mat: metal)
                 // Headrest pillow, lit cupholder and a little LED under the seat.
                 b.box(Vec3(x + 0.28, fl + 1.0, z - 0.3), Vec3(x + 0.46, fl + 1.24, z + 0.3), color: rgb(t.seat, vip ? 1.0 : 0.75), mat: .lit(rough: 0.9))
                 b.box(center: Vec3(x - 0.22, fl + 0.757, z - 0.47), size: Vec3(0.1, 0.012, 0.1), color: rgb(t.accent), mat: .glow(1.6))
