@@ -182,6 +182,21 @@ final class CinemaGame: ObservableObject {
         refreshHUD()
     }
 
+    /// Align first-person viewing directly to the real theater screen.
+    /// Preserve the ticketed seat, immersion motion and current movie.
+    func recenterCinemaScreen() {
+        guard let s = seatedAt else { return }
+        cameraMode = .firstPerson
+        seatYawOffset = 0
+        yaw = CinemaWorld.screenYaw(s.room)
+        let origin = CinemaWorld.seatPosition(room: s.room, row: s.row, seat: s.seat)
+        let viewer = origin + Vec3(0, 1.12, 0)
+        let target = CinemaWorld.screenCenter(s.room)
+        let delta = target - viewer
+        pitch = max(-0.5, min(0.5, atan2f(delta.y, hypotf(delta.x, delta.z))))
+        lookDelta = .zero
+    }
+
     func toggleRecline() { if isSeated { reclined.toggle() } }
 
     /// Places the player directly (used by the `-zmfShot` launch argument for screenshots).
