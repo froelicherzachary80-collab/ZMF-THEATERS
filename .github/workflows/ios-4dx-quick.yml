@@ -1,0 +1,54 @@
+name: Quick iOS 4DX MVP IPA
+
+on:
+  push:
+    branches:
+      - feature/ios-4dx-mvp-03-05-06-07
+    paths:
+      - "ZMFTheaters/**"
+      - "ZMFTheaters.xcodeproj/**"
+      - "ZMFTheatersTests/**"
+      - ".github/workflows/ios-4dx-quick.yml"
+  workflow_dispatch:
+
+jobs:
+  package:
+    name: Unsigned iPhone IPA
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+      - name: Bundle existing Depth Anything V2 model
+        run: bash scripts/fetch-depth-model.sh
+      - name: Build native iPhone app
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodebuild build -project ZMFTheaters.xcodeproj -scheme ZMFTheaters -configuration Release \
+            -sdk iphoneos -destination "generic/platform=iOS" -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" 2>&1 | tee build.log | grep -E "error:|warning: .*\.swift|\\*\\* BUILD" || true
+          grep -q "** BUILD SUCCEEDED **" build.log || grep -Fq '** BUILD SUCCEEDED **' build.log
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/ZMFTheaters.app Payload/
+          zip -qry ZMFTheaters-4DX-MVP-unsigned.ipa Payload
+          ls -lh ZMFTheaters-4DX-MVP-unsigned.ipa
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZMFTheaters-4DX-MVP-iOS-unsigned
+          path: ZMFTheaters-4DX-MVP-unsigned.ipa
+          if-no-files-found: error
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZMFTheaters-4DX-MVP-build-log
+          path: build.log
+          if-no-files-found: ignore
