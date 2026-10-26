@@ -311,11 +311,14 @@ final class Renderer {
             frame.ambient = Vec4(room.theme.light.x, room.theme.light.y, room.theme.light.z, 0) * (0.012 + 0.05 * dim)
             frame.fog = Vec4(room.theme.wall.x * 0.15, room.theme.wall.y * 0.15, room.theme.wall.z * 0.15, settings.fogEnabled ? room.theme.fog * (1.3 - dim * 0.5) : 0)
             if id == activeRoom, fourDX.running {
-                // 4DX strobes flash the auditorium; smoke bursts thicken the haze.
-                let flash = fourDX.strobe * 0.9
-                frame.ambient += Vec4(flash, flash * 0.95, flash * 0.9, 0)
-                frame.fog.w += fourDX.fogBoost * 0.05
-                frame.fog += Vec4(0.08, 0.08, 0.09, 0) * fourDX.fogBoost
+                // Fog is simulated with distance-haze shading, not physical mist.
+                let intensity = Float(max(0, min(1, settings.fourDXAtmosphereStrength)))
+                let fog = settings.fourDXVirtualFog ? fourDX.virtualFog : 0
+                let mist = settings.fourDXVirtualMist ? fourDX.mist : 0
+                frame.fog.w += intensity * (fog * 0.027 + mist * 0.012)
+                frame.fog.x += intensity * mist * 0.023
+                frame.fog.y += intensity * mist * 0.027
+                frame.fog.z += intensity * mist * 0.035
             }
         }
         if let id = activeRoom, activeScreen != nil, visibleRooms.contains(id) {
@@ -505,8 +508,10 @@ final class Renderer {
             let base = CinemaWorld.seatPosition(room: seat.room, row: seat.row, seat: seat.seat)
             let yaw = CinemaWorld.screenYaw(seat.room)
             let travel = game.seatMotion.offset
-            let swing = max(-0.035, min(0.035, game.seatMotion.tilt.y))
-            let body = Mat4.translation(base + travel * 0.85) * Mat4.rotationY(yaw + swing)
+            let pitch = max(-0.10, min(0.10, game.seatMotion.tilt.x))
+            let bank = max(-0.10, min(0.10, game.seatMotion.tilt.y))
+            let body = Mat4.translation(base + travel * 0.85) *
+                Mat4.rotationY(yaw) * Mat4.rotationZ(bank) * Mat4.rotationX(pitch)
             let steel = Vec4(0.42, 0.48, 0.54, 1)
             let black = Vec4(0.055, 0.065, 0.08, 1)
             let glow = Vec4(0.12, 0.72, 0.91, 1)
@@ -526,6 +531,8 @@ final class Renderer {
             drawCube(enc, model: body * Mat4.translation(Vec3(0.51, 0.8, 0)) * Mat4.scale(Vec3(0.13, 0.72, 0.77)),
                      color: Vec4(0.12, 0.16, 0.22, 1), rough: 0.82)
         }
+        drawVirtualAtmosphere(enc: enc, game: game, activeRoom: activeRoom)
+
         // Friends from the watch party sit next to you.
         if let s = game.seatedAt, s.room == activeRoom, visibleRooms.contains(s.room), !partyGuests.isEmpty {
             let order = [1, -1, 2, -2, 3, -3, 4, -4].map { s.seat + $0 }.filter { (0..<Seating.seatsPerRow).contains($0) }
@@ -590,6 +597,55 @@ final class Renderer {
         }
     }
 
+    /// Procedural 4DX visual preset effects in the *virtual* auditorium.
+    /// Screen content is never edited or assumed to contain snow, fog or fire.
+    /// Total < 42 small meshes/frame, drawn only in the active occupied room.
+    private func drawVirtualAtmosphere(enc: MTLRenderCommandEncoder, game: CinemaGame, activeRoom: Int?) {
+        guard fourDX.running, let activeRoom, let occupied = game.seatedAt,
+              occupied.room == activeRoom else { return }
+        let strength = Float(max(0, min(1, settings.fourDXAtmosphereStrength)))
+        guard strength > 0.01 else { return }
+        let current = CinemaWorld.seatPosition(room: occupied.room, row: occupied.row, seat: occupied.seat)
+        let forward = forwardVector(yaw: CinemaWorld.screenYaw(occupied.room))
+        let side = simd_cross(forward, Vec3(0, 1, 0))
+        let t = game.time
+
+        func part(_ index: Int, kind: Int, intensity: Float, tint: Vec4) {
+            guard intensity > 0.1 else { return }
+            let fi = Float(index)
+            let seed = fi * 12.9898 + Float(kind) * 78.233
+            let u = sinf(seed) * 43758.545
+            let fraction = u - floorf(u)
+            let v = sinf(seed + 19.2) * 5931.21
+            let fraction2 = v - floorf(v)
+            let speed: Float = kind == 0 ? 0.8 : (kind == 1 ? 0.52 : 0.18)
+            let fall = kind == 2 ? -1 : 1
+            let y = (fraction * 3.5 + t * speed * Float(fall)).truncatingRemainder(dividingBy: 3.5)
+            let pos = current + forward * (2.0 + fraction * 5.0) +
+                side * ((fraction2 - 0.5) * 7.0) + Vec3(0, 0.8 + y, 0)
+            let size: Float = kind == 1 ? 0.018 : (kind == 0 ? 0.026 : 0.018)
+            drawCube(enc, model: Mat4.translation(pos) * Mat4.scale(Vec3(size, size, size) * max(0.4, intensity)),
+                     color: tint, emissive: kind == 1 ? 0.3 : 0)
+        }
+        if settings.fourDXVirtualSnow {
+            for i in 0..<22 {
+                part(i, kind: 0, intensity: fourDX.snow * strength, tint: Vec4(0.85, 0.93, 1, 1))
+            }
+        }
+        if settings.fourDXVirtualAsh {
+            for i in 0..<18 {
+                part(i, kind: 1, intensity: fourDX.ash * strength, tint: Vec4(0.53, 0.43, 0.37, 1))
+            }
+        }
+        // Mist/fog volume comes from the existing shader's smooth distance haze.
+        // A handful of faint light flecks makes the mist visible near projectors.
+        if settings.fourDXVirtualMist && fourDX.mist > 0.18 {
+            for i in 0..<8 {
+                part(i, kind: 2, intensity: fourDX.mist * strength, tint: Vec4(0.56, 0.68, 0.78, 1))
+            }
+        }
+    }
+
     // MARK: 3D conversion
 
     private func wants3D(_ session: TheaterSession) -> Bool {
@@ -646,16 +702,28 @@ final class Renderer {
     // MARK: 4DX
 
     private func apply4DX(session: TheaterSession, game: CinemaGame, dt: Float) {
-        let want = session.ticket?.screeningFormat.uses4DX == true && session.phase == .feature && session.feature.player.rate > 0 && FourDX.isPreviewActive(settings: settings)
-        if want, let ticket = session.ticket {
+        let feature4DX = session.ticket?.screeningFormat.uses4DX == true && session.phase == .feature &&
+            session.feature.player.rate > 0 && FourDX.isPreviewActive(settings: settings)
+        let trailer4DX = session.activeYouTubeTrailer?.presentation == .fourDX &&
+            session.phase == .trailer && session.youtubeIsPlaying && settings.fourDXTrailersEnabled
+        let want = feature4DX || trailer4DX
+        if feature4DX, let ticket = session.ticket {
             fourDX.beginMedia(id: ticket.mediaId, duration: session.feature.duration)
         }
         if want && !fourDX.running { fourDX.start(haptics: settings.fourDXHaptics) }
         if !want && fourDX.running { fourDX.stop() }
         let grid = screenAverage.contents().bindMemory(to: Vec4.self, capacity: 65).advanced(by: 1)
         let forward = game.seatedAt.map { forwardVector(yaw: CinemaWorld.screenYaw($0.room)) } ?? Vec3(0, 0, 1)
-        fourDX.update(grid: fourDX.running ? UnsafePointer(grid) : nil, dt: dt, intensity: Float(settings.fourDXIntensity), seatForward: forward, timestamp: session.feature.player.currentTime().seconds)
-        game.seatMotion = (fourDX.seatOffset, fourDX.seatTilt)
+        if trailer4DX {
+            fourDX.updateTrailerPreview(dt: dt, timestamp: session.youtubeTime,
+                                       intensity: Float(settings.fourDXIntensity), seatForward: forward)
+        } else {
+            fourDX.update(grid: feature4DX ? UnsafePointer(grid) : nil, dt: dt,
+                          intensity: Float(settings.fourDXIntensity), seatForward: forward,
+                          timestamp: session.feature.player.currentTime().seconds)
+        }
+        let travel = Float(max(0, min(1.5, settings.fourDXSeatTravel)))
+        game.seatMotion = (fourDX.seatOffset * travel, fourDX.seatTilt * travel)
     }
 
     // MARK: Screen content
