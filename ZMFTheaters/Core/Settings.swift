@@ -100,6 +100,13 @@ struct AppSettings: Codable, Equatable {
     var fourDXVirtualFog = true
     var fourDXAtmosphereStrength: Double = 0.55
     var fourDXSeatTravel: Double = 1.0
+    // ZMF BeyondScreen 4DX: original procedural worlds in the theater.
+    var beyondScreenPrice: Int = 600
+    var beyondScreenVision = true
+    var beyondScreenCharacters = true
+    var beyondScreenStrength: Double = 0.8
+    var beyondScreenMotion = true
+    var beyondScreenOverrides: [String: BeyondScene] = [:]
     // v0.4.2 independent YouTube cinema controls; all processing stays local.
     var youtubeCinemaPreset: YouTubeMotionPreset = .edits
     var youtubeCinemaBPM: Double = 120
