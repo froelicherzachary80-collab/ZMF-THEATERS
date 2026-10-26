@@ -19,7 +19,9 @@ struct GameView: View {
     private var settings: AppSettings { settingsStore.settings }
 
     /// Seated during a screening with auto-hide on: the picture gets the whole screen.
-    private var cinemaMode: Bool { settings.autoHideControls && game.hud.seated && session.isRunning }
+    private var cinemaMode: Bool {
+        settings.autoHideControls && game.hud.seated && (session.isRunning || model.youtubeCinema.isOpen)
+    }
     private var hudVisible: Bool { !cinemaMode || controlsVisible }
 
     private func showControls() {
