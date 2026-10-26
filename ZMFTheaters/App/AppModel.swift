@@ -17,6 +17,7 @@ final class AppModel: ObservableObject {
     let wallet = Wallet()
     let rotation = RotationDirector()
     let session = TheaterSession()
+    let youtubeCinema = YouTubeCinemaSession()
     let game = CinemaGame()
     let party = WatchParty()
     let renderer: Renderer?
@@ -35,6 +36,7 @@ final class AppModel: ObservableObject {
         renderer = Renderer()
         renderer?.game = game
         renderer?.session = session
+        renderer?.youtubeCinema = youtubeCinema
         party.library = library
         party.session = session
         party.onNeedScreening = { [weak self] item, start in self?.startPartyScreening(item: item, startAt: start) }
@@ -234,6 +236,28 @@ final class AppModel: ObservableObject {
 
     func refreshUnlocks() {
         game.unlockedRooms = Set(wallet.activeTickets.map { $0.roomId })
+    }
+
+    // MARK: YouTube 4DX Browser
+
+    func startYouTubeCinema(videoID: String, title: String) {
+        // Explicit user action; keep independent Jellyfin features intact.
+        if session.isRunning { session.end() }
+        if mode == nil { mode = .singleplayer }
+        let id = 9
+        game.debugPlace(CinemaWorld.seatPosition(room: id, row: 4, seat: 3),
+                        yaw: CinemaWorld.screenYaw(id), pitch: 0)
+        game.sit(room: id, row: 4, seat: 3)
+        youtubeCinema.open(videoID: videoID, title: title,
+                           preset: settings.youtubeCinemaPreset,
+                           bpm: settings.youtubeCinemaBPM,
+                           cuts: settings.youtubeCueMarksByVideo[videoID] ?? [])
+        flash("YouTube Cinema · Open video, tap Play to start virtual 4DX")
+    }
+
+    func stopYouTubeCinema() {
+        youtubeCinema.close()
+        game.seatMotion = (.zero, .zero)
     }
 
     // MARK: Screening
