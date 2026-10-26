@@ -383,16 +383,26 @@ struct YouTubeCinemaOverlay: View {
                                 .font(.caption2)
                                 .buttonStyle(.borderless)
                                 if advancedControls {
-                                    HStack(spacing: 10) {
-                                        Text("Rhythm")
-                                        Slider(value: $cinema.bpm, in: 60...200, step: 5)
-                                            .onChange(of: cinema.bpm) { _, next in
-                                                settingsStore.settings.youtubeCinemaBPM = next
-                                            }
-                                        Button("Clear marks", role: .destructive) {
-                                            cinema.clearCuts()
-                                            if let id = cinema.videoID {
-                                                settingsStore.settings.youtubeCueMarksByVideo[id] = []
+                                    VStack(spacing: 5) {
+                                        HStack(spacing: 8) {
+                                            Text("Rhythm")
+                                            Slider(value: $cinema.bpm, in: 60...200, step: 5)
+                                                .onChange(of: cinema.bpm) { _, next in
+                                                    settingsStore.settings.youtubeCinemaBPM = next
+                                                }
+                                            Text("Intensity").font(.caption2)
+                                            Slider(value: $settingsStore.settings.fourDXIntensity, in: 0...1)
+                                        }
+                                        HStack(spacing: 8) {
+                                            Text("Seat travel").font(.caption2)
+                                            Slider(value: $settingsStore.settings.fourDXSeatTravel, in: 0...1.5)
+                                            Text("Atmosphere").font(.caption2)
+                                            Slider(value: $settingsStore.settings.fourDXAtmosphereStrength, in: 0...1)
+                                            Button("Clear marks", role: .destructive) {
+                                                cinema.clearCuts()
+                                                if let id = cinema.videoID {
+                                                    settingsStore.settings.youtubeCueMarksByVideo[id] = []
+                                                }
                                             }
                                         }
                                     }.font(.caption2)
