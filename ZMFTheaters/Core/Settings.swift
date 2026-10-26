@@ -42,6 +42,10 @@ struct AppSettings: Codable, Equatable {
     var maxTrailers = 3
     var introSeconds = 12
     var countdownSeconds = 10
+    /// Official YouTube iframe previews (links only — no downloading).
+    var youtubeTrailers: [PreshowYouTubeTrailer] = []
+    var standardTrailersEnabled = true
+    var fourDXTrailersEnabled = true
 
     // MARK: Economy (fictional Z$ only)
     var standardPrice = 150
@@ -89,6 +93,13 @@ struct AppSettings: Codable, Equatable {
     var fourDXPrice = 400
     var fourDXIntensity: Double = 1.0
     var fourDXHaptics = true
+    /// Virtual-only atmospheric effects and seat model controls.
+    var fourDXVirtualMist = true
+    var fourDXVirtualSnow = true
+    var fourDXVirtualAsh = true
+    var fourDXVirtualFog = true
+    var fourDXAtmosphereStrength: Double = 0.55
+    var fourDXSeatTravel: Double = 1.0
     /// Admin override to try 4DX outside the Oct 27–28 preview days.
     var fourDXForcePreview = false
 
