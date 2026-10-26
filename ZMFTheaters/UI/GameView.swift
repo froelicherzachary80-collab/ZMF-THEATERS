@@ -68,6 +68,7 @@ struct GameView: View {
 
             if session.phase == .trailer, session.activeYouTubeTrailer != nil {
                 YouTubePreshowOverlay(session: session)
+                    .ignoresSafeArea()
             }
 
             if session.phase == .feature {
