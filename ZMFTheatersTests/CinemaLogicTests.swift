@@ -25,11 +25,14 @@ final class CinemaLogicTests: XCTestCase {
     }
 
     func testCombinedFormatAndPermanentAvailability() throws {
-        XCTAssertEqual(ScreeningFormat.allCases.count, 4)
+        XCTAssertEqual(ScreeningFormat.allCases.count, 5)
         XCTAssertTrue(ScreeningFormat.fourDX3D.usesDepth)
         XCTAssertTrue(ScreeningFormat.fourDX3D.uses4DX)
         XCTAssertFalse(ScreeningFormat.standard2D.usesDepth)
         XCTAssertFalse(ScreeningFormat.standard2D.uses4DX)
+        XCTAssertTrue(ScreeningFormat.beyondScreen4DX.usesBeyondScreen)
+        XCTAssertTrue(ScreeningFormat.beyondScreen4DX.uses4DX)
+        XCTAssertTrue(ScreeningFormat.beyondScreen4DX.usesDepth)
         XCTAssertTrue(FourDX.isPreviewActive(now: Date.distantFuture, settings: AppSettings()))
         let saved = Data("\"fourDX\"".utf8)
         XCTAssertEqual(try JSONDecoder().decode(ScreeningFormat.self, from: saved), .fourDX)
@@ -232,6 +235,58 @@ final class CinemaLogicTests: XCTestCase {
         XCTAssertEqual(game.cameraMode, .firstPerson)
         XCTAssertEqual(game.yaw, CinemaWorld.screenYaw(room), accuracy: 0.001)
         XCTAssertTrue(game.pitch.isFinite)
+    }
+
+    func testBeyondScreenGenreMappingAndMotionSafety() {
+        XCTAssertEqual(BeyondGenre.classify(["Romance"]), .romance)
+        XCTAssertEqual(BeyondGenre.classify(["Horror", "Thriller"]), .horror)
+        XCTAssertEqual(BeyondGenre.classify(["Action"]), .action)
+        XCTAssertEqual(BeyondGenre.classify(["Fantasy"]), .fantasy)
+        XCTAssertEqual(BeyondGenre.classify(["Science Fiction"]), .scienceFiction)
+        XCTAssertLessThan(BeyondGenre.romance.motionScale, BeyondGenre.action.motionScale)
+        XCTAssertGreaterThan(BeyondGenre.horror.responseRate, BeyondGenre.romance.responseRate)
+        XCTAssertLessThanOrEqual(BeyondGenre.action.motionScale, 1)
+    }
+
+    func testBeyondScreenVisionSceneClassificationUsesOnlyGroundedLabels() {
+        let labels: [(String, Float)] = [("coral reef", 0.72), ("city", 0.13)]
+        let scene = BeyondSceneDirector.classify(labels)
+        XCTAssertEqual(scene?.0, .underwater)
+        XCTAssertEqual(scene?.1, 0.72)
+        XCTAssertNil(BeyondSceneDirector.classify([("unknown visual", 0.95)]))
+        XCTAssertNil(BeyondSceneDirector.classify([("helicopter", 0.02)]))
+        XCTAssertEqual(BeyondSceneDirector.classify([("helicopter", 0.54)])?.0, .helicopter)
+    }
+
+    func testBeyondScreenSettingsPersistAndLegacyTicketsRemainCompatible() throws {
+        var original = AppSettings()
+        original.beyondScreenStrength = 0.53
+        original.beyondScreenCharacters = false
+        original.beyondScreenOverrides["film:A"] = .underwater
+        let roundTrip = try JSONDecoder().decode(AppSettings.self, from: JSONEncoder().encode(original))
+        XCTAssertEqual(roundTrip.beyondScreenStrength, 0.53)
+        XCTAssertFalse(roundTrip.beyondScreenCharacters)
+        XCTAssertEqual(roundTrip.beyondScreenOverrides["film:A"], .underwater)
+        XCTAssertEqual(ScreeningFormat(rawValue: "fourDX3D"), .fourDX3D)
+    }
+
+    func testBeyondScreenMotionReturnsNeutralForZeroIntensity() {
+        let engine = FourDXEngine()
+        engine.start(haptics: false)
+        var samples = [Vec4](repeating: Vec4(0.05, 0.04, 0.04, 1), count: 64)
+        for frame in 0..<90 {
+            let v = Float(frame % 7) / 45
+            samples[frame % 64] = Vec4(v, v, v, 1)
+            samples.withUnsafeBufferPointer { buf in
+                engine.update(grid: buf.baseAddress, dt: 1 / 30, intensity: 0,
+                              seatForward: Vec3(0, 0, 1), timestamp: Double(frame) / 30,
+                              responseRate: BeyondGenre.horror.responseRate)
+            }
+            XCTAssertLessThanOrEqual(engine.rumble, 0.25)
+            XCTAssertEqual(engine.strobe, 0)
+        }
+        engine.stop()
+        XCTAssertEqual(engine.seatOffset, .zero)
     }
 
     func testRotationFillsTwelveRoomsWithoutDuplicatesAndRespectsEras() {
