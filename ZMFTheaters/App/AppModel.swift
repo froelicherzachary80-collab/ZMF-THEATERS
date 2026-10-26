@@ -18,6 +18,7 @@ final class AppModel: ObservableObject {
     let rotation = RotationDirector()
     let session = TheaterSession()
     let youtubeCinema = YouTubeCinemaSession()
+    let beyondScreen = BeyondSceneDirector()
     let game = CinemaGame()
     let party = WatchParty()
     let renderer: Renderer?
@@ -37,6 +38,7 @@ final class AppModel: ObservableObject {
         renderer?.game = game
         renderer?.session = session
         renderer?.youtubeCinema = youtubeCinema
+        renderer?.beyondScreen = beyondScreen
         party.library = library
         party.session = session
         party.onNeedScreening = { [weak self] item, start in self?.startPartyScreening(item: item, startAt: start) }
@@ -66,7 +68,8 @@ final class AppModel: ObservableObject {
         // Forward nested ObservableObject changes so views observing AppModel refresh.
         for publisher in [library.objectWillChange.eraseToAnyPublisher(), wallet.objectWillChange.eraseToAnyPublisher(),
                           rotation.objectWillChange.eraseToAnyPublisher(), settingsStore.objectWillChange.eraseToAnyPublisher(),
-                          party.objectWillChange.eraseToAnyPublisher(), youtubeCinema.objectWillChange.eraseToAnyPublisher()] {
+                          party.objectWillChange.eraseToAnyPublisher(), youtubeCinema.objectWillChange.eraseToAnyPublisher(),
+                          beyondScreen.objectWillChange.eraseToAnyPublisher()] {
             publisher.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         }
 
@@ -192,6 +195,7 @@ final class AppModel: ObservableObject {
         case .standard2D: base = settings.standardPrice
         case .anaglyph3D: base = settings.threeDPrice
         case .fourDX, .fourDX3D: base = settings.fourDXPrice
+        case .beyondScreen4DX: base = settings.beyondScreenPrice
         }
         let upgrade = vip ? max(0, settings.vipPrice - settings.standardPrice) : 0
         let kind: TicketKind = vip ? .vip : (format.usesDepth ? .threeD : .standard)
@@ -281,6 +285,12 @@ final class AppModel: ObservableObject {
 
     func startScreening(ticket: Ticket, item: MediaItem, resumeAt: Double?) {
         showResumePrompt = nil
+        if ticket.screeningFormat.usesBeyondScreen {
+            beyondScreen.begin(id: item.id, genres: item.genres, title: item.title,
+                               overrides: settings.beyondScreenOverrides)
+        } else {
+            beyondScreen.reset()
+        }
         session.begin(ticket: ticket, item: item, resumeAt: resumeAt, library: library, settings: settings, skipPreshow: resumeAt != nil)
     }
 
