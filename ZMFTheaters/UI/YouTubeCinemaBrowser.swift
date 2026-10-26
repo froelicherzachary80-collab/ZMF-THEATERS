@@ -24,6 +24,13 @@ final class YouTubeCinemaSession: ObservableObject {
     @Published private(set) var video: PreshowYouTubeTrailer?
     @Published private(set) var playing = false
     @Published private(set) var seconds: Double = 0
+    private var clockSyncUptime = ProcessInfo.processInfo.systemUptime
+    var playbackTime: Double {
+        guard playing else { return seconds }
+        // Interpolate between official YouTube player position callbacks.
+        // At most 0.5s extrapolation so buffering does not drive seat for long.
+        return seconds + min(0.5, max(0, ProcessInfo.processInfo.systemUptime - clockSyncUptime))
+    }
     @Published var error: String?
     @Published var preset: YouTubeMotionPreset = .edits
     @Published var bpm: Double = 120
@@ -41,6 +48,7 @@ final class YouTubeCinemaSession: ObservableObject {
         self.bpm = min(200, max(60, bpm.isFinite ? bpm : 120))
         self.cutMarks = Array(Set(cuts.filter { $0.isFinite && $0 >= 0 })).sorted().prefix(1500).map { $0 }
         seconds = 0
+        clockSyncUptime = ProcessInfo.processInfo.systemUptime
         playing = false
         error = nil
     }
@@ -49,12 +57,14 @@ final class YouTubeCinemaSession: ObservableObject {
         guard video != nil else { return }
         self.playing = playing
         if seconds.isFinite { self.seconds = max(0, seconds) }
+        clockSyncUptime = ProcessInfo.processInfo.systemUptime
     }
 
     func recordCut() -> [Double] {
         guard video != nil, playing, seconds.isFinite else { return cutMarks }
-        if !cutMarks.contains(where: { abs($0 - seconds) < 0.15 }) {
-            cutMarks.append(seconds)
+        let now = playbackTime
+        if !cutMarks.contains(where: { abs($0 - now) < 0.15 }) {
+            cutMarks.append(now)
             cutMarks.sort()
             if cutMarks.count > 1500 { cutMarks.removeFirst() }
         }
