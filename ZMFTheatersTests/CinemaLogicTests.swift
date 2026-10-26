@@ -24,6 +24,35 @@ final class CinemaLogicTests: XCTestCase {
         return out
     }
 
+    func testCombinedFormatAndPermanentAvailability() throws {
+        XCTAssertEqual(ScreeningFormat.allCases.count, 4)
+        XCTAssertTrue(ScreeningFormat.fourDX3D.usesDepth)
+        XCTAssertTrue(ScreeningFormat.fourDX3D.uses4DX)
+        XCTAssertFalse(ScreeningFormat.standard2D.usesDepth)
+        XCTAssertFalse(ScreeningFormat.standard2D.uses4DX)
+        XCTAssertTrue(FourDX.isPreviewActive(now: Date.distantFuture, settings: AppSettings()))
+        let saved = Data("\"fourDX\"".utf8)
+        XCTAssertEqual(try JSONDecoder().decode(ScreeningFormat.self, from: saved), .fourDX)
+    }
+
+    func testFlashDoesNotCreateImpactAndStopResetsSeat() {
+        let engine = FourDXEngine()
+        engine.start(haptics: false)
+        for i in 0..<60 {
+            var samples = [Vec4](repeating: Vec4(repeating: i % 2 == 0 ? 0 : 1), count: 64)
+            samples.withUnsafeBufferPointer { grid in
+                engine.update(grid: grid.baseAddress, dt: 1 / 24, intensity: 1,
+                              seatForward: Vec3(0, 0, 1), timestamp: Double(i) / 24)
+            }
+            XCTAssertEqual(engine.strobe, 0)
+            XCTAssertEqual(engine.fogBoost, 0)
+        }
+        engine.stop()
+        XCTAssertEqual(engine.rumble, 0)
+        XCTAssertEqual(engine.seatOffset, .zero)
+        XCTAssertEqual(engine.seatTilt, .zero)
+    }
+
     func testRotationFillsTwelveRoomsWithoutDuplicatesAndRespectsEras() {
         let s = AppSettings()
         let (assign, notes) = RotationDirector.select(candidates: library(), index: 5, settings: s, recent: [])
@@ -115,3 +144,4 @@ final class CinemaLogicTests: XCTestCase {
         XCTAssertEqual(CinemaWorld.zone(at: Vec2(seat.x, seat.z)), .room(9))
     }
 }
+

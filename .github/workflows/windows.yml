@@ -54,12 +54,26 @@ jobs:
           Stop-Process -Id $p.Id -Force
 
       - name: 3D conversion self-test (Depth Anything V2 ONNX)
-        continue-on-error: true
         shell: pwsh
         run: |
           $p = Start-Process -FilePath "out/ZMFTheaters-Windows/ZMFTheaters.exe" -ArgumentList "--selftest-3d","$PWD/selftest.txt" -PassThru -Wait
           Get-Content selftest.txt -ErrorAction SilentlyContinue
           if ($p.ExitCode -ne 0) { Write-Error "3D self-test exit code $($p.ExitCode)"; exit 1 }
+
+      - name: 4DX regression tests
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "out/ZMFTheaters-Windows/ZMFTheaters.exe" -ArgumentList "--selftest-4dx","$PWD/fourdx-tests.txt" -PassThru -Wait
+          Get-Content fourdx-tests.txt
+          if ($p.ExitCode -ne 0) { throw "4DX test failed: $($p.ExitCode)" }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Windows-regression-logs
+          path: |
+            selftest.txt
+            fourdx-tests.txt
 
       - name: Render 3D cinema screenshots
         shell: pwsh
@@ -72,7 +86,7 @@ jobs:
           Get-ChildItem shots
 
       - name: Publish screenshots to the ci-screenshots-windows branch
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/claude/zmf-theaters-v0.1'
         shell: bash
         run: |
           cd shots
@@ -89,13 +103,3 @@ jobs:
             ZMFTheaters.exe
             ZMFTheaters-Windows-x64.zip
 
-      - name: Attach to the preview release
-        if: github.event_name != 'pull_request'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG=v0.3.0-preview
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
-            --title "ZMF THEATERS+ v0.3 preview" --notes "iPhone IPA and Windows app builds from CI."
-          gh release upload "$TAG" ZMFTheaters.exe ZMFTheaters-Windows-x64.zip --clobber

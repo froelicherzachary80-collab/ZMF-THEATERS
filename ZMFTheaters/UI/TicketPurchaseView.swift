@@ -79,7 +79,7 @@ struct TicketPurchaseView: View {
             Text("Format").font(.headline)
             HStack {
                 ForEach(ScreeningFormat.allCases) { f in
-                    let locked = f == .fourDX && !model.fourDXAvailable
+                    let locked = f.uses4DX && !model.fourDXAvailable
                     Button {
                         guard !locked else { return }
                         format = f
@@ -103,7 +103,7 @@ struct TicketPurchaseView: View {
     }
 
     private func priceLabel(_ f: ScreeningFormat) -> String {
-        if f == .fourDX && !model.fourDXAvailable { return "Oct 27–28" }
+        if f.uses4DX && !model.fourDXAvailable { return "Oct 27–28" }
         return "Z$\(model.price(room: selectedRoom, row: 0, format: f).0)+"
     }
 
@@ -111,7 +111,8 @@ struct TicketPurchaseView: View {
         switch format {
         case .standard2D: return "The film plays exactly as mastered."
         case .anaglyph3D: return "ZMF DepthCinema AI estimates depth on-device and converts the film to red/cyan 3D. Wear red (left) / cyan (right) glasses. Converted 3D is an approximation, not native 3D."
-        case .fourDX: return "4DX preview: motion seat, rumble, strobes and fog driven by the on-screen action. On Windows it also drives a bHaptics TactSuit Air."
+        case .fourDX: return "Automatic gentle motion from picture analysis. Semantic effects are still in development."
+        case .fourDX3D: return "AI red/cyan depth conversion plus automatic gentle motion. Semantic effects are still in development."
         }
     }
 
@@ -222,3 +223,4 @@ struct SeatMap: View {
         HStack(spacing: 4) { RoundedRectangle(cornerRadius: 3).fill(c).frame(width: 12, height: 10); Text(t) }
     }
 }
+

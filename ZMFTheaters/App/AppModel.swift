@@ -189,10 +189,10 @@ final class AppModel: ObservableObject {
         switch format {
         case .standard2D: base = settings.standardPrice
         case .anaglyph3D: base = settings.threeDPrice
-        case .fourDX: base = settings.fourDXPrice
+        case .fourDX, .fourDX3D: base = settings.fourDXPrice
         }
         let upgrade = vip ? max(0, settings.vipPrice - settings.standardPrice) : 0
-        let kind: TicketKind = vip ? .vip : (format == .anaglyph3D ? .threeD : .standard)
+        let kind: TicketKind = vip ? .vip : (format.usesDepth ? .threeD : .standard)
         return (base + upgrade, kind)
     }
 
@@ -205,7 +205,7 @@ final class AppModel: ObservableObject {
     @discardableResult
     func purchase(item: MediaItem, room: CinemaRoom, row: Int, seat: Int, showtime: Showtime?, episodeQueue: [String] = [],
                   format: ScreeningFormat = .standard2D) -> Ticket? {
-        let format = (format == .fourDX && !fourDXAvailable) ? .standard2D : format
+        let format = (format.uses4DX && !fourDXAvailable) ? .standard2D : format
         let (p, kind) = price(room: room, row: row, format: format)
         let t = Ticket(mediaId: item.id, title: item.displayTitle, roomId: room.id, row: row, seat: seat,
                        showtime: showtime?.featureStart, isPrivate: showtime == nil, kind: kind, price: p, episodeQueue: episodeQueue,
@@ -216,7 +216,7 @@ final class AppModel: ObservableObject {
         }
         refreshUnlocks()
         guide(to: t)
-        flash("\(format.label) ticket · Room \(room.code) · Seat \(t.seatLabel)\(format == .anaglyph3D ? " · grab your red/cyan glasses" : "")")
+        flash("\(format.label) ticket · Room \(room.code) · Seat \(t.seatLabel)\(format.usesDepth ? " · grab your red/cyan glasses" : "")")
         return t
     }
 
@@ -310,3 +310,4 @@ final class AppModel: ObservableObject {
         if game.isSeated { game.stand() }
     }
 }
+

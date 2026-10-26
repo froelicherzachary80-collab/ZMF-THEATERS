@@ -24,7 +24,7 @@ struct AdminView: View {
                     NavigationLink { GraphicsAdminView() } label: { Label("Graphics & Controls", systemImage: "paintbrush") }
                     NavigationLink { PlaybackAdminView() } label: { Label("Playback", systemImage: "play.circle") }
                     NavigationLink { StereoAdminView() } label: { Label("3D Cinema Settings", systemImage: "eyeglasses") }
-                    NavigationLink { FourDXAdminView() } label: { Label("4DX Preview", systemImage: "wind") }
+                    NavigationLink { FourDXAdminView() } label: { Label("Immersive 4DX", systemImage: "wind") }
                     NavigationLink { PlannedView(title: "AI Control", version: "v0.3", detail: "Procedural AI moviegoers and employees with names, outfits, personalities and daily schedules — no paid LLM required.") } label: { Label("AI Control", systemImage: "person.3") }
                     NavigationLink { PlannedView(title: "Room Designer", version: "v0.4", detail: "Per-room lighting colour, decoration density and ambience. Genre identity and Room 01's 1900–1999 rule stay fixed.") } label: { Label("Room Designer", systemImage: "paintpalette") }
                 }
@@ -390,7 +390,7 @@ struct FourDXAdminView: View {
         Form {
             Section {
                 Text(FourDX.teaser(settings: settingsStore.settings)).font(.headline).foregroundStyle(.cyan)
-                Text("Preview days: October 27–28, 2026 (New York time). Pick “4DX Preview” when buying a ticket. Effects are driven live by the picture: sustained action → motion seat and rumble, sudden flashes → strobe, seat kick and a smoke burst.")
+                Text("4DX is permanently available. This development build uses conservative picture-motion analysis. Semantic event detection and the expanded effect library are not implemented yet.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             Section("Effects") {
@@ -402,13 +402,14 @@ struct FourDXAdminView: View {
                 Stepper("4DX ticket: Z$\(settingsStore.settings.fourDXPrice)", value: $settingsStore.settings.fourDXPrice, in: 0...2000, step: 25)
             }
             Section("bHaptics TactSuit Air") {
-                Text("The TactSuit Air is driven by ZMF THEATERS+ for Windows through bHaptics Player. bHaptics doesn't offer an iOS SDK, so on iPhone the 4DX rumble uses the built-in Taptic Engine.")
+                Text("The official bHaptics Swift SDK supports direct Bluetooth LE on iOS, but it is not integrated into this build. This toggle controls the iPhone Taptic Engine only. Windows vest output is disabled pending protocol and hardware validation.")
                     .font(.caption2)
             }
             Section("Testing") {
-                Toggle("Enable 4DX now (outside preview days)", isOn: $settingsStore.settings.fourDXForcePreview)
+                Toggle("Legacy preview override (no longer required)", isOn: $settingsStore.settings.fourDXForcePreview)
             }
         }
-        .navigationTitle("4DX Preview")
+        .navigationTitle("Immersive 4DX")
     }
 }
+

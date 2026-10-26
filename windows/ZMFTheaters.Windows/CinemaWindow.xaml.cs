@@ -13,12 +13,17 @@ using MediaPlayer = LibVLCSharp.Shared.MediaPlayer;
 
 namespace ZMFTheaters;
 
-public enum Format { TwoD, ThreeD, FourDX }
+public enum Format { TwoD, ThreeD, FourDX, FourDX3D }
+public static class FormatFeatures
+{
+    public static bool UsesDepth(this Format f) => f is Format.ThreeD or Format.FourDX3D;
+    public static bool Uses4DX(this Format f) => f is Format.FourDX or Format.FourDX3D;
+}
 
 public sealed record CinemaTicket(MediaEntry Film, int Room, int Row, int Seat, Format Format, int Price)
 {
     public string SeatLabel => $"{(char)('A' + Row)}{Seat + 1}";
-    public string FormatLabel => Format switch { Format.ThreeD => "3D", Format.FourDX => "4DX", _ => "2D" };
+    public string FormatLabel => Format switch { Format.ThreeD => "Auto 3D", Format.FourDX => "Auto 4DX", Format.FourDX3D => "Auto 4DX 3D", _ => "2D" };
 }
 
 public sealed class FilmChoice
@@ -446,7 +451,8 @@ public partial class CinemaWindow : Window
             var status = ticket?.Format switch
             {
                 Format.ThreeD => stereo?.Status ?? "3D",
-                Format.FourDX => "4DX preview · " + (tactsuit?.Status ?? ""),
+                Format.FourDX => "Auto 4DX · picture motion analysis",
+                Format.FourDX3D => (stereo?.Status ?? "3D preparing") + " · Auto 4DX",
                 _ => "",
             };
             StatusLine.Text = status;
@@ -570,16 +576,17 @@ public partial class CinemaWindow : Window
         FormatNote.Text = ChosenFormat switch
         {
             Format.ThreeD => "ZMF DepthCinema AI converts the film to red/cyan 3D live (Depth Anything V2 on your GPU). Wear red-left / cyan-right glasses. Converted 3D approximates depth.",
-            Format.FourDX => "4DX preview: motion seat, strobes and smoke driven by the action — plus your bHaptics TactSuit Air through bHaptics Player.",
+            Format.FourDX => "Automatic gentle motion from picture analysis. Semantic effects are in development.",
+            Format.FourDX3D => "AI red/cyan depth conversion plus automatic gentle motion. Semantic effects are in development.",
             _ => "Plays exactly as mastered.",
         };
         UpdatePrice();
     }
 
-    Format ChosenFormat => Fmt3D.IsChecked == true ? Format.ThreeD : Fmt4DX.IsChecked == true ? Format.FourDX : Format.TwoD;
+    Format ChosenFormat => Fmt4DX3D.IsChecked == true ? Format.FourDX3D : Fmt3D.IsChecked == true ? Format.ThreeD : Fmt4DX.IsChecked == true ? Format.FourDX : Format.TwoD;
 
     int PriceFor(Format f, int row) =>
-        (f switch { Format.ThreeD => 225, Format.FourDX => 400, _ => 150 }) + (row is 4 or 5 ? 200 : 0);
+        (f switch { Format.ThreeD => 225, Format.FourDX or Format.FourDX3D => 400, _ => 150 }) + (row is 4 or 5 ? 200 : 0);
 
     void BuildSeatGrid()
     {
@@ -610,7 +617,7 @@ public partial class CinemaWindow : Window
         if (selectedSeat is { } s && selectedFilm != null)
         {
             var price = PriceFor(ChosenFormat, s.row);
-            PriceText.Text = $"Seat {(char)('A' + s.row)}{s.seat + 1} · {ChosenFormat switch { Format.ThreeD => "3D", Format.FourDX => "4DX", _ => "2D" }}{(s.row is 4 or 5 ? " · VIP" : "")} · Z${price}  (balance Z${config.Balance:N0})";
+            PriceText.Text = $"Seat {(char)('A' + s.row)}{s.seat + 1} · {ChosenFormat switch { Format.ThreeD => "Auto 3D", Format.FourDX => "Auto 4DX", Format.FourDX3D => "Auto 4DX 3D", _ => "2D" }}{(s.row is 4 or 5 ? " · VIP" : "")} · Z${price}  (balance Z${config.Balance:N0})";
             BuyButton.IsEnabled = config.Balance >= price;
         }
         else { PriceText.Text = "Choose a film and a seat"; BuyButton.IsEnabled = false; }
@@ -620,7 +627,7 @@ public partial class CinemaWindow : Window
     {
         if (selectedFilm == null || selectedRoom == null || selectedSeat is not { } s) return;
         var fmt = ChosenFormat;
-        if (fmt == Format.FourDX && !FourDXPreview.Active(config.Force4DX)) fmt = Format.TwoD;
+        if (fmt.Uses4DX() && !FourDXPreview.Active(config.Force4DX)) fmt = Format.TwoD;
         var price = PriceFor(fmt, s.row);
         if (config.Balance < price) return;
         config.Balance -= price;
@@ -629,7 +636,7 @@ public partial class CinemaWindow : Window
         shownRooms.Clear();
         UpdateWallet();
         BoxOffice.Visibility = Visibility.Collapsed;
-        Toast($"{ticket.FormatLabel} ticket · Room {selectedRoom.Code} · Seat {ticket.SeatLabel}" + (fmt == Format.ThreeD ? " · grab your red/cyan glasses" : ""));
+        Toast($"{ticket.FormatLabel} ticket · Room {selectedRoom.Code} · Seat {ticket.SeatLabel}" + (fmt.UsesDepth() ? " · grab your red/cyan glasses" : ""));
     }
 
     // MARK: Seating & screening
@@ -642,12 +649,12 @@ public partial class CinemaWindow : Window
         shownRooms.Clear();
         if (ticket == null) return;
         api = clientFor(ticket.Film.Server);
-        if (ticket.Format == Format.ThreeD && stereo == null)
+        if (ticket.Format.UsesDepth() && stereo == null)
         {
             stereo = new StereoConverter();
             _ = stereo.InitAsync(new Progress<string>(m => Toast(m)));
         }
-        if (ticket.Format == Format.FourDX && tactsuit != null) await tactsuit.ConnectAsync();
+        if (ticket.Format.Uses4DX() && tactsuit != null) await tactsuit.ConnectAsync();
         if (player != null) return; // already screening; just sat back down
         if (party == null && config.Preshow) await PreshowAsync();
         await StartPlaybackAsync();
@@ -681,7 +688,7 @@ public partial class CinemaWindow : Window
             Slide(ticket.Room, "WELCOME TO ZMF THEATERS+", r.Name.ToUpperInvariant(), $"Now presenting: {ticket.Film.Title} · Seat {ticket.SeatLabel}");
             await Task.Delay(6000, ct);
             houseTarget = 0.35;
-            Slide(ticket.Room, "A FRIENDLY REMINDER", "Please silence your phone", ticket.Format == Format.ThreeD ? "Put on your red/cyan glasses" : "Sit back, relax and enjoy the show");
+            Slide(ticket.Room, "A FRIENDLY REMINDER", "Please silence your phone", ticket.Format.UsesDepth() ? "Put on your red/cyan glasses" : "Sit back, relax and enjoy the show");
             await Task.Delay(4000, ct);
             houseTarget = 0.1;
             for (int n = 10; n >= 1; n--)
@@ -705,7 +712,7 @@ public partial class CinemaWindow : Window
             playSessionId = session;
             libVLC ??= new LibVLC("--no-video-title-show");
             player = new MediaPlayer(libVLC) { EnableHardwareDecoding = true };
-            frames = new VideoFrames(ticket.Format == Format.ThreeD ? 1280 : 1920);
+            frames = new VideoFrames(ticket.Format.UsesDepth() ? 1280 : 1920);
             frames.Attach(player);
             player.Playing += (_, _) => Dispatcher.BeginInvoke(OnVlcPlaying);
             player.EndReached += (_, _) => Dispatcher.BeginInvoke(OnVlcEnded);
@@ -760,7 +767,7 @@ public partial class CinemaWindow : Window
         if (got && frameBuf != null)
         {
             ImageSource shown;
-            if (ticket.Format == Format.ThreeD && stereo?.Ready == true)
+            if (ticket.Format.UsesDepth() && stereo?.Ready == true)
             {
                 stereo.Submit(frameBuf, w, h);
                 if (stereoBuf == null || stereoBuf.Length != frameBuf.Length) stereoBuf = new byte[frameBuf.Length];
@@ -788,9 +795,9 @@ public partial class CinemaWindow : Window
                 screenLight.Color = Color.FromRgb((byte)(r / n), (byte)(g / n), (byte)(b / n));
             }
         }
-        if (ticket.Format == Format.FourDX && FourDXPreview.Active(config.Force4DX) && player.IsPlaying)
+        if (ticket.Format.Uses4DX() && FourDXPreview.Active(config.Force4DX) && player.IsPlaying)
         {
-            fourDX.Analyse(got ? frameBuf : null, w, h, dt, 1.0);
+            fourDX.Analyse(got ? frameBuf : null, w, h, dt, 1.0, CurrentSeconds);
             _ = tactsuit?.SendAsync(fourDX.Rumble, fourDX.Impact);
         }
         else if (!player.IsPlaying) fourDX.Reset();
@@ -876,6 +883,7 @@ public partial class CinemaWindow : Window
     void SeekTo(double seconds)
     {
         if (player == null) return;
+        fourDX.Reset();
         seconds = Math.Clamp(seconds, 0, Math.Max(0, player.Length / 1000.0 - 1));
         if (party?.InGroup == true) { _ = party.SeekAsync(seconds); return; }
         player.Time = (long)(seconds * 1000);
@@ -967,3 +975,4 @@ public partial class CinemaWindow : Window
         finally { Application.Current.Shutdown(0); }
     }
 }
+

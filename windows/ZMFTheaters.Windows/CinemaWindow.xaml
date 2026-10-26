@@ -92,7 +92,8 @@
                         <StackPanel Orientation="Horizontal">
                             <RadioButton x:Name="Fmt2D" Content="2D  Z$150" Foreground="White" Margin="0,0,14,0" IsChecked="True" Checked="OnFormatChanged"/>
                             <RadioButton x:Name="Fmt3D" Content="3D red/cyan  Z$225" Foreground="White" Margin="0,0,14,0" Checked="OnFormatChanged"/>
-                            <RadioButton x:Name="Fmt4DX" Content="4DX  Z$400" Foreground="#80DEEA" Checked="OnFormatChanged"/>
+                            <RadioButton x:Name="Fmt4DX3D" Content="Auto 4DX 3D  Z$400" Foreground="#80DEEA" Checked="OnFormatChanged"/>
+                            <RadioButton x:Name="Fmt4DX" Content="Auto 4DX  Z$400" Foreground="#80DEEA" Checked="OnFormatChanged"/>
                         </StackPanel>
                         <TextBlock x:Name="FormatNote" Foreground="{StaticResource DimTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,6"/>
                         <TextBlock Text="SCREEN" HorizontalAlignment="Center" Foreground="{StaticResource DimTextBrush}" Margin="0,8,0,4"/>
@@ -108,3 +109,4 @@
         </Grid>
     </Grid>
 </Window>
+

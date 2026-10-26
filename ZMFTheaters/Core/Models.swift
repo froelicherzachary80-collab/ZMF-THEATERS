@@ -103,22 +103,25 @@ struct MediaItem: Codable, Identifiable, Hashable {
 
 /// How the film is presented for a ticket. 2D stays untouched; 3D runs the
 /// on-device depth model and red/cyan stereo synthesis; 4DX adds motion,
-/// rumble and environmental effects (preview days only).
+/// rumble and environmental effects.
 enum ScreeningFormat: String, Codable, CaseIterable, Identifiable {
-    case standard2D, anaglyph3D, fourDX
+    case standard2D, anaglyph3D, fourDX, fourDX3D
+    var usesDepth: Bool { self == .anaglyph3D || self == .fourDX3D }
+    var uses4DX: Bool { self == .fourDX || self == .fourDX3D }
     var id: String { rawValue }
     var label: String {
         switch self {
         case .standard2D: return "2D"
-        case .anaglyph3D: return "3D (red/cyan)"
-        case .fourDX: return "4DX Preview"
+        case .anaglyph3D: return "Auto 3D"
+        case .fourDX: return "Auto 4DX"
+        case .fourDX3D: return "Auto 4DX 3D"
         }
     }
     var symbol: String {
         switch self {
         case .standard2D: return "rectangle"
         case .anaglyph3D: return "eyeglasses"
-        case .fourDX: return "wind"
+        case .fourDX, .fourDX3D: return "wind"
         }
     }
 }
@@ -182,3 +185,4 @@ struct WatchRecord: Codable, Hashable {
     var durationSeconds: Double
     var updatedAt: Date
 }
+
