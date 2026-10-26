@@ -63,6 +63,7 @@ struct GameView: View {
                 YouTubeCinemaOverlay(cinema: model.youtubeCinema,
                     onBrowse: { model.stopYouTubeCinema(); sheet = .youtube },
                     onClose: { model.stopYouTubeCinema() })
+                    .ignoresSafeArea()
             }
 
             if session.phase == .trailer, session.activeYouTubeTrailer != nil {
