@@ -58,6 +58,52 @@ final class CinemaLogicTests: XCTestCase {
         XCTAssertEqual(engine.seatTilt, .zero)
     }
 
+    func testMotionCueCacheIsReusableAndRejectsChangedDuration() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let cache = FourDXCueCache(directory: dir)
+        let cues = [
+            FourDXMotionCue(timestamp: 5.0, energy: 0.13, flowX: -0.1, flowY: 0),
+            FourDXMotionCue(timestamp: 6.0, energy: 0.1, flowX: 0.1, flowY: 0)
+        ]
+        await cache.save(mediaID: "local-film-A", duration: 120, cues: cues)
+        let loaded = await cache.load(mediaID: "local-film-A", duration: 120)
+        XCTAssertEqual(loaded.count, 2)
+        XCTAssertEqual(loaded[0].timestamp, 5)
+        let differentMedia = await cache.load(mediaID: "local-film-B", duration: 120)
+        XCTAssertTrue(differentMedia.isEmpty)
+        let changedVersion = await cache.load(mediaID: "local-film-A", duration: 145)
+        XCTAssertTrue(changedVersion.isEmpty)
+    }
+
+    func testPictureMotionDoesNotTriggerFlashesAndResetsOnSeek() {
+        let engine = FourDXEngine()
+        engine.start(haptics: false)
+        for f in 0..<80 {
+            let samples = (0..<64).map { i -> Vec4 in
+                let x = Float(i % 8)
+                let value = 0.15 + 0.07 * sinf((x + Float(f) * 0.4) * 0.45)
+                return Vec4(value, value, value, 1)
+            }
+            samples.withUnsafeBufferPointer { grid in
+                engine.update(grid: grid.baseAddress, dt: 1 / 30, intensity: 1,
+                              seatForward: Vec3(0, 0, 1), timestamp: Double(f) / 30)
+            }
+            XCTAssertTrue(engine.rumble.isFinite)
+            XCTAssertLessThanOrEqual(engine.rumble, 0.25)
+            XCTAssertEqual(engine.strobe, 0)
+            XCTAssertEqual(engine.fogBoost, 0)
+        }
+        let dark = [Vec4](repeating: Vec4(0, 0, 0, 1), count: 64)
+        dark.withUnsafeBufferPointer { grid in
+            engine.update(grid: grid.baseAddress, dt: 1 / 30, intensity: 1,
+                          seatForward: Vec3(0, 0, 1), timestamp: 0)
+        }
+        XCTAssertEqual(engine.rumble, 0)
+        XCTAssertEqual(engine.seatOffset, .zero)
+        engine.stop()
+    }
+
     func testRotationFillsTwelveRoomsWithoutDuplicatesAndRespectsEras() {
         let s = AppSettings()
         let (assign, notes) = RotationDirector.select(candidates: library(), index: 5, settings: s, recent: [])
