@@ -66,7 +66,7 @@ final class AppModel: ObservableObject {
         // Forward nested ObservableObject changes so views observing AppModel refresh.
         for publisher in [library.objectWillChange.eraseToAnyPublisher(), wallet.objectWillChange.eraseToAnyPublisher(),
                           rotation.objectWillChange.eraseToAnyPublisher(), settingsStore.objectWillChange.eraseToAnyPublisher(),
-                          party.objectWillChange.eraseToAnyPublisher()] {
+                          party.objectWillChange.eraseToAnyPublisher(), youtubeCinema.objectWillChange.eraseToAnyPublisher()] {
             publisher.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         }
 
