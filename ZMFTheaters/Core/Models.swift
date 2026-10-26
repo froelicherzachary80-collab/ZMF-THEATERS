@@ -105,9 +105,10 @@ struct MediaItem: Codable, Identifiable, Hashable {
 /// on-device depth model and red/cyan stereo synthesis; 4DX adds motion,
 /// rumble and environmental effects.
 enum ScreeningFormat: String, Codable, CaseIterable, Identifiable {
-    case standard2D, anaglyph3D, fourDX, fourDX3D
-    var usesDepth: Bool { self == .anaglyph3D || self == .fourDX3D }
-    var uses4DX: Bool { self == .fourDX || self == .fourDX3D }
+    case standard2D, anaglyph3D, fourDX, fourDX3D, beyondScreen4DX
+    var usesDepth: Bool { self == .anaglyph3D || self == .fourDX3D || self == .beyondScreen4DX }
+    var uses4DX: Bool { self == .fourDX || self == .fourDX3D || self == .beyondScreen4DX }
+    var usesBeyondScreen: Bool { self == .beyondScreen4DX }
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -115,6 +116,7 @@ enum ScreeningFormat: String, Codable, CaseIterable, Identifiable {
         case .anaglyph3D: return "Auto 3D"
         case .fourDX: return "Auto 4DX"
         case .fourDX3D: return "Auto 4DX 3D"
+        case .beyondScreen4DX: return "BeyondScreen 4DX"
         }
     }
     var symbol: String {
@@ -122,6 +124,7 @@ enum ScreeningFormat: String, Codable, CaseIterable, Identifiable {
         case .standard2D: return "rectangle"
         case .anaglyph3D: return "eyeglasses"
         case .fourDX, .fourDX3D: return "wind"
+        case .beyondScreen4DX: return "sparkles.tv"
         }
     }
 }
