@@ -88,6 +88,7 @@ final class Renderer {
     weak var game: CinemaGame?
     weak var session: TheaterSession?
     weak var youtubeCinema: YouTubeCinemaSession?
+    weak var beyondScreen: BeyondSceneDirector?
     var settings = AppSettings()
     var thermalThrottle = false
     /// Names of friends in the current watch party (shown seated beside you).
@@ -312,6 +313,20 @@ final class Renderer {
             let dim: Float = (id == activeRoom) ? houseLights : 1
             frame.ambient = Vec4(room.theme.light.x, room.theme.light.y, room.theme.light.z, 0) * (0.012 + 0.05 * dim)
             frame.fog = Vec4(room.theme.wall.x * 0.15, room.theme.wall.y * 0.15, room.theme.wall.z * 0.15, settings.fogEnabled ? room.theme.fog * (1.3 - dim * 0.5) : 0)
+            if id == activeRoom, let world = beyondScreen,
+               session.ticket?.screeningFormat.usesBeyondScreen == true,
+               session.phase == .feature {
+                // Scene-aware, physically plausible ambient color and fog.
+                // The decoded feature stays untouched on the real screen.
+                let tint = world.scene.accent
+                let strength = Float(max(0, min(1, settings.beyondScreenStrength))) *
+                    Float(max(0, min(1, world.environmentIntensity)))
+                frame.ambient += tint * (0.012 * strength)
+                frame.fog.x += tint.x * 0.1 * strength
+                frame.fog.y += tint.y * 0.1 * strength
+                frame.fog.z += tint.z * 0.1 * strength
+                frame.fog.w += (world.scene == .underwater ? 0.032 : 0.009) * strength
+            }
             if id == activeRoom, fourDX.running {
                 // Fog is simulated with distance-haze shading, not physical mist.
                 let intensity = Float(max(0, min(1, settings.fourDXAtmosphereStrength)))
@@ -535,6 +550,7 @@ final class Renderer {
         }
         drawVirtualAtmosphere(enc: enc, game: game, activeRoom: activeRoom)
         drawYouTubeCinemaLighting(enc: enc, game: game, activeRoom: activeRoom)
+        drawBeyondScene(enc: enc, game: game, activeRoom: activeRoom)
 
         // Friends from the watch party sit next to you.
         if let s = game.seatedAt, s.room == activeRoom, visibleRooms.contains(s.room), !partyGuests.isEmpty {
@@ -597,6 +613,156 @@ final class Renderer {
             drawCube(enc, model: base * Mat4.translation(Vec3(0, 0.45, 0)) * Mat4.scale(Vec3(0.34, 0.9, 0.24)), color: Vec4(0.15, 0.17, 0.25, 1))
             drawCube(enc, model: base * Mat4.translation(Vec3(0, 1.2, 0)) * Mat4.scale(Vec3(0.5, 0.65, 0.3)), color: Vec4(0.75, 0.1, 0.12, 1))
             drawCube(enc, model: base * Mat4.translation(Vec3(0, 1.7, 0)) * Mat4.scale(Vec3(0.26, 0.28, 0.26)), color: Vec4(0.85, 0.65, 0.5, 1))
+        }
+    }
+
+    /// BEYONDSCREEN 4DX v0.5 — original geometry is drawn in the physical
+    /// auditorium volume, spilling in from the theater screen toward seats.
+    /// Scene choice is either explicit or an on-device Vision hint. It is not
+    /// a reconstruction of copyrighted 3D movie characters or locations.
+    private func drawBeyondScene(enc: MTLRenderCommandEncoder,
+                                 game: CinemaGame, activeRoom: Int?) {
+        guard let session, session.phase == .feature,
+              session.ticket?.screeningFormat.usesBeyondScreen == true,
+              let world = beyondScreen, let seat = game.seatedAt,
+              seat.room == activeRoom else { return }
+        let density = Float(max(0, min(1, settings.beyondScreenStrength))) *
+            Float(max(0, min(1, world.environmentIntensity)))
+        guard density > 0.01 else { return }
+        let transform = CinemaWorld.transform(room: seat.room)
+        let time = session.feature.currentTime.isFinite ? Float(session.feature.currentTime) : game.time
+        let scene = world.scene
+        let tint = scene.accent
+        let cinematic = settings.graphicsQuality == .cinematic
+        let maxParticles = cinematic ? 145 : (settings.graphicsQuality == .balanced ? 95 : 50)
+
+        func box(_ lx: Float, _ ly: Float, _ lz: Float,
+                 _ wx: Float, _ wy: Float, _ wz: Float,
+                 _ color: Vec4, _ emissive: Float = 0) {
+            let p = transform.point(Vec3(lx, ly, lz))
+            drawCube(enc, model: Mat4.translation(p) *
+                     Mat4.scale(Vec3(wx, wy, wz)), color: color,
+                     emissive: emissive, rough: 0.68)
+        }
+
+        func particle(_ index: Int, _ mode: Int) {
+            let i = Float(index)
+            let a = BeyondScreen.hash(i * 0.91 + Float(mode) * 2.71)
+            let b = BeyondScreen.hash(i * 1.47 + Float(mode) * 3.31)
+            let c = BeyondScreen.hash(i * 2.13 + Float(mode) * 4.17)
+            let drift: Float = scene == .helicopter ? 2.7 :
+                               scene == .underwater ? 0.55 : 1.0
+            let scroll = (time * drift + a * 20).truncatingRemainder(dividingBy: 20)
+            let lx: Float = 3.0 + scroll
+            let ly: Float
+            let lz: Float = 0.65 + (b * 12.7)
+            let size: Float
+            let color: Vec4
+            let lit: Float
+            switch scene {
+            case .underwater:
+                ly = -1.0 + (c * 5.5 + time * 0.55)
+                    .truncatingRemainder(dividingBy: 5.5)
+                size = 0.055 + a * 0.085
+                color = Vec4(0.35, 0.77, 0.96, 1)
+                lit = 0.16
+            case .helicopter:
+                ly = -0.8 + c * 4.0 + sinf(time * 2.1 + i) * 0.3
+                size = 0.04 + a * 0.09
+                color = Vec4(0.27 + b * 0.23, 0.46 + a * 0.22, 0.19, 1)
+                lit = 0
+            case .enchanted:
+                ly = -0.7 + c * 4.1 + sinf(time * 0.8 + i * 0.13) * 0.45
+                size = 0.04 + a * 0.04
+                color = Vec4(0.55, 0.38 + b * 0.35, 0.98, 1)
+                lit = 0.36
+            case .romance:
+                ly = -0.25 + c * 3.5 + sinf(time * 0.6 + i) * 0.25
+                size = 0.035 + a * 0.04
+                color = Vec4(1.0, 0.42 + b * 0.24, 0.6, 1)
+                lit = 0.14
+            case .haunted:
+                ly = -0.8 + c * 4.8 + sinf(time * 1.25 + i) * 0.12
+                size = 0.04 + a * 0.045
+                color = Vec4(0.6, 0.66, 0.84, 1)
+                lit = 0.12
+            case .cosmic:
+                ly = -0.8 + c * 5.0
+                size = 0.015 + a * 0.055
+                color = Vec4(0.58 + 0.33 * b, 0.7, 1, 1)
+                lit = 0.55
+            }
+            box(lx, ly, lz, size * density, size * density, size * density,
+                color, lit * density)
+        }
+
+        for i in 0..<maxParticles {
+            particle(i, 0)
+        }
+
+        // Recognizable environmental context, assembled procedurally at
+        // native renderer resolution: trees, kelp, pilasters, light shafts,
+        // romantic light sources and portal rails.
+        let fixtures = cinematic ? 11 : 7
+        for i in 0..<fixtures {
+            let k = Float(i)
+            let lx: Float = 4.5 + Float(i % 6) * 3.2
+            let side: Float = i % 2 == 0 ? 0.7 : 13.3
+            let ground = CinemaWorld.localGround(lx)
+            switch scene {
+            case .underwater:
+                box(lx, ground + 0.9, side, 0.16, 1.8 + k * 0.05, 0.14,
+                    Vec4(0.08, 0.5, 0.32, 1))
+                box(lx + 0.14, ground + 1.6, side, 0.13, 1.1, 0.12,
+                    Vec4(0.12, 0.7, 0.42, 1))
+            case .helicopter, .enchanted:
+                box(lx, ground + 1.25, side, 0.15, 2.5, 0.16,
+                    Vec4(0.27, 0.17, 0.1, 1))
+                box(lx, ground + 2.5 + sinf(time * 0.7 + k) * 0.07,
+                    side, 1.15, 1.1, 1.1,
+                    Vec4(0.08, 0.42 + density * 0.26, 0.22, 1))
+            case .romance:
+                box(lx, ground + 1.15, side, 0.15, 2.3, 0.14,
+                    Vec4(0.52, 0.28, 0.38, 1))
+                box(lx, ground + 2.4, side, 0.31, 0.27, 0.31,
+                    Vec4(1, 0.47, 0.6, 1), 0.4 * density)
+            case .haunted:
+                box(lx, ground + 1.5, side, 0.3, 3.0, 0.34,
+                    Vec4(0.26, 0.26, 0.33, 1))
+                box(lx, ground + 2.9, side, 0.42, 0.12, 0.42,
+                    tint, 0.11)
+            case .cosmic:
+                box(lx, ground + 2.3, side, 0.13, 3.4, 0.16,
+                    tint, 0.3)
+            }
+        }
+
+        // Screen portal: animated colored trim extends film space toward the
+        // audience. Its brightness stays low with no high-frequency strobing.
+        let breathing = 0.24 + 0.1 * sinf(time * 0.9)
+        for side in [Float(1.0), 13.0] {
+            box(1.15, 1.05, side, 0.12, 5.0, 0.14,
+                tint * density, breathing * density)
+        }
+
+        // Fictional abstract figures *emerge* from the screen in the 3D room.
+        // No likeness extraction or claimed copying of specific movie actors.
+        if world.charactersEnabled && settings.beyondScreenCharacters {
+            let extend = 1.4 + 5.0 * (0.5 + 0.5 * sinf(time * 0.16))
+            let y: Float = CinemaWorld.localGround(extend)
+            let bob = sinf(time * 0.8) * 0.08
+            for n in 0..<2 {
+                let side: Float = n == 0 ? 5.15 : 8.75
+                let x = extend + Float(n) * 0.8
+                box(x, y + 0.95 + bob, side, 0.5, 0.95, 0.29,
+                    tint * 0.42, 0.07)
+                box(x, y + 1.62 + bob, side, 0.31, 0.34, 0.31,
+                    tint * 0.64, 0.12)
+                box(x, y + 0.52 + bob, side - 0.25, 0.14, 0.75, 0.17,
+                    tint * 0.3)
+                box(x, y + 0.52 + bob, side + 0.25, 0.14, 0.75, 0.17,
+                    tint * 0.3)
+            }
         }
     }
 
@@ -768,8 +934,13 @@ final class Renderer {
             fourDX.updateTrailerPreview(dt: dt, timestamp: session.youtubeTime,
                                        intensity: Float(settings.fourDXIntensity), seatForward: forward)
         } else {
+            let genreMotion: Float = (feature4DX &&
+                session.ticket?.screeningFormat.usesBeyondScreen == true)
+                ? (beyondScreen?.motionEnabled == true ? (beyondScreen?.genre.motionScale ?? 0.45) : 0)
+                : 1
             fourDX.update(grid: feature4DX ? UnsafePointer(grid) : nil, dt: dt,
-                          intensity: Float(settings.fourDXIntensity), seatForward: forward,
+                          intensity: Float(settings.fourDXIntensity) * genreMotion,
+                          seatForward: forward,
                           timestamp: session.feature.player.currentTime().seconds)
         }
         let travel = Float(max(0, min(1.5, settings.fourDXSeatTravel)))
@@ -788,6 +959,11 @@ final class Renderer {
                 CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pb, nil, .bgra8Unorm_srgb, w, h, 0, &cv)
                 if session.ticket?.screeningFormat.usesDepth == true, engine === session.feature {
                     depth.submit(pb, rate: settings.depthUpdatesPerSecond)
+                }
+                if session.ticket?.screeningFormat.usesBeyondScreen == true,
+                   session.phase == .feature, engine === session.feature,
+                   settings.beyondScreenVision, let director = beyondScreen {
+                    director.analyze(pixelBuffer: pb, seconds: engine.currentTime)
                 }
                 if let cv, let tex = CVMetalTextureGetTexture(cv) {
                     videoTexture = tex
