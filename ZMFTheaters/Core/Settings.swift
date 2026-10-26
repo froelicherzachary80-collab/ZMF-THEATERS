@@ -100,6 +100,10 @@ struct AppSettings: Codable, Equatable {
     var fourDXVirtualFog = true
     var fourDXAtmosphereStrength: Double = 0.55
     var fourDXSeatTravel: Double = 1.0
+    // v0.4.2 independent YouTube cinema controls; all processing stays local.
+    var youtubeCinemaPreset: YouTubeMotionPreset = .edits
+    var youtubeCinemaBPM: Double = 120
+    var youtubeCueMarksByVideo: [String: [Double]] = [:]
     /// Admin override to try 4DX outside the Oct 27–28 preview days.
     var fourDXForcePreview = false
 
