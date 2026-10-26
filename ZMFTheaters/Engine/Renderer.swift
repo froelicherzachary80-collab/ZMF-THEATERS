@@ -719,7 +719,7 @@ final class Renderer {
         let grid = screenAverage.contents().bindMemory(to: Vec4.self, capacity: 65).advanced(by: 1)
         let forward = game.seatedAt.map { forwardVector(yaw: CinemaWorld.screenYaw($0.room)) } ?? Vec3(0, 0, 1)
         if youTube4DX, let youtubeCinema {
-            fourDX.updateYouTubeCinema(dt: dt, timestamp: youtubeCinema.seconds,
+            fourDX.updateYouTubeCinema(dt: dt, timestamp: youtubeCinema.playbackTime,
                   intensity: Float(settings.fourDXIntensity), seatForward: forward,
                   preset: youtubeCinema.preset, bpm: youtubeCinema.bpm,
                   cuts: youtubeCinema.cutMarks)
