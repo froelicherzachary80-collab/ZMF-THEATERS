@@ -53,6 +53,10 @@ struct YouTubePreshowPlayer: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let bridge = WKUserContentController()
         bridge.add(context.coordinator, name: "zmfTrailer")
+        // Watch-page fallback clock: reads the official page's own <video>
+        // position so 4DX motion follows real playback. Read-only; nothing is
+        // extracted, downloaded or altered.
+        bridge.addUserScript(WKUserScript(source: Self.watchClockScript, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         let config = WKWebViewConfiguration()
         config.userContentController = bridge
         config.allowsInlineMediaPlayback = true
@@ -69,8 +73,29 @@ struct YouTubePreshowPlayer: UIViewRepresentable {
 
     func updateUIView(_ webview: WKWebView, context: Context) {
         context.coordinator.parent = self
-        if context.coordinator.loadedID != trailer.videoID { load(trailer, in: webview) }
+        if context.coordinator.loadedID != trailer.videoID {
+            context.coordinator.loadedID = trailer.videoID
+            context.coordinator.usingWatchPage = false
+            load(trailer, in: webview)
+        }
     }
+
+    /// Embedders must identify themselves (Referer/origin) or YouTube answers
+    /// with error 152/153. The page origin is the app's own bundle identity,
+    /// never a spoofed youtube.com origin.
+    static let embedOrigin = "https://com.zmf.theatersplus"
+
+    static let watchClockScript = """
+    (function(){
+      if(!/(^|\\.)youtube\\.com$/.test(location.hostname)) return;
+      setInterval(function(){
+        var v=document.querySelector('video');
+        if(!v) return;
+        try{window.webkit.messageHandlers.zmfTrailer.postMessage({kind:'tick',value:{playing:!v.paused&&!v.ended&&v.readyState>2,time:v.currentTime||0}});}catch(e){}
+        if(v.ended&&!window.__zmfEnded){window.__zmfEnded=1;try{window.webkit.messageHandlers.zmfTrailer.postMessage({kind:'ended',value:0});}catch(e){}}
+      },350);
+    })();
+    """
 
     private func load(_ trailer: PreshowYouTubeTrailer, in webview: WKWebView) {
         // videoID is strictly validated as eleven URL-safe characters.
@@ -87,7 +112,7 @@ struct YouTubePreshowPlayer: UIViewRepresentable {
         function onYouTubeIframeAPIReady() {
           player = new YT.Player('player', {
             videoId: '\(trailer.videoID)', width:'100%', height:'100%',
-            playerVars:{playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'https://www.youtube.com'},
+            playerVars:{playsinline:1,controls:1,rel:0,enablejsapi:1,origin:'\(Self.embedOrigin)',widget_referrer:'\(Self.embedOrigin)'},
             events:{
               onReady:function(){tell('ready',0);},
               onStateChange:function(e){
@@ -105,7 +130,7 @@ struct YouTubePreshowPlayer: UIViewRepresentable {
         },350);
         </script><script src="https://www.youtube.com/iframe_api"></script></body></html>
         """
-        webview.loadHTMLString(html, baseURL: URL(string: "https://www.youtube.com"))
+        webview.loadHTMLString(html, baseURL: URL(string: Self.embedOrigin))
     }
 
     static func dismantleUIView(_ webview: WKWebView, coordinator: Coordinator) {
@@ -119,6 +144,7 @@ struct YouTubePreshowPlayer: UIViewRepresentable {
         var parent: YouTubePreshowPlayer
         weak var webview: WKWebView?
         var loadedID: String
+        var usingWatchPage = false
         init(parent: YouTubePreshowPlayer) {
             self.parent = parent
             loadedID = parent.trailer.videoID
@@ -129,7 +155,19 @@ struct YouTubePreshowPlayer: UIViewRepresentable {
                   let kind = data["kind"] as? String else { return }
             switch kind {
             case "ended": parent.onEnded()
-            case "error": parent.onError("YouTube embed error \(data["value"] ?? ""). This trailer may not allow embedding.")
+            case "error":
+                let code = data["value"] as? Int ?? 0
+                // 101/150: owner disabled embedding. 152/153: embed identity
+                // rejected. Play the same video on YouTube's own watch page
+                // instead, keeping the 4DX clock from its player.
+                if [101, 150, 152, 153].contains(code), !usingWatchPage, let webview,
+                   let url = URL(string: "https://m.youtube.com/watch?v=" + loadedID) {
+                    usingWatchPage = true
+                    webview.scrollView.isScrollEnabled = true
+                    webview.load(URLRequest(url: url))
+                } else {
+                    parent.onError("YouTube could not play this video (error \(code)). Try Watch video on YouTube.")
+                }
             case "state":
                 if let value = data["value"] as? Int, value == 0 { parent.onEnded() }
             case "tick":
