@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum GameSheet: String, Identifiable {
-    case boxOffice, concessions, wallet, map, admin, phone, party
+    case boxOffice, concessions, wallet, map, admin, phone, party, youtube
     var id: String { rawValue }
 }
 
@@ -56,6 +56,12 @@ struct GameView: View {
                 }
             })
             .ignoresSafeArea()
+
+            if model.youtubeCinema.isOpen {
+                YouTubeCinemaOverlay(cinema: model.youtubeCinema,
+                    onBrowse: { model.stopYouTubeCinema(); sheet = .youtube },
+                    onClose: { model.stopYouTubeCinema() })
+            }
 
             if session.phase == .trailer, session.activeYouTubeTrailer != nil {
                 YouTubePreshowOverlay(session: session)
@@ -129,6 +135,7 @@ struct GameView: View {
         case .map: CinemaMapView()
         case .admin: AdminView()
         case .party: WatchPartyView()
+        case .youtube: YouTubeBrowserView()
         }
     }
 
@@ -184,6 +191,7 @@ struct GameView: View {
                 HUDButton(symbol: "creditcard.fill", label: "WALLET") { sheet = .wallet }
                 HUDButton(symbol: "iphone", label: "PHONE") { sheet = .boxOffice }
                 HUDButton(symbol: "person.2.fill", label: "PARTY", tint: model.party.isInParty ? .green : .white) { sheet = .party }
+                HUDButton(symbol: "play.rectangle.fill", label: "YOUTUBE", tint: .red) { sheet = .youtube }
                 HUDButton(symbol: game.cameraMode == .firstPerson ? "eye.fill" : "figure.stand", label: "CAMERA") {
                     game.cameraMode = game.cameraMode == .firstPerson ? .thirdPerson : .firstPerson
                 }
