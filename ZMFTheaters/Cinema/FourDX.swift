@@ -252,7 +252,8 @@ final class FourDXEngine {
             flowY: confidence ? Float(selected.1) * min(0.24, stationary * 1.7) : 0)
     }
 
-    func update(grid: UnsafePointer<Vec4>?, dt: Float, intensity: Float, seatForward: Vec3, timestamp: Double = 0) {
+    func update(grid: UnsafePointer<Vec4>?, dt: Float, intensity: Float, seatForward: Vec3,
+                timestamp: Double = 0, responseRate: Float = 5) {
         guard running else { return }
         let seconds = timestamp.isFinite ? max(0, timestamp) : 0
         let step = dt.isFinite ? max(0, min(0.1, dt)) : 0
@@ -288,7 +289,7 @@ final class FourDXEngine {
         else if energy > 0.1 { motionKind = .turbulence }
         else { motionKind = .engineRumble }
 
-        let smooth: Float = 1 - expf(-step * 5)
+        let smooth: Float = 1 - expf(-step * max(1, min(9, responseRate.isFinite ? responseRate : 5)))
         rumble += (energy - rumble) * smooth
         velocity += (Vec2(sx, sy) - velocity) * smooth
         let t = Float(seconds)
