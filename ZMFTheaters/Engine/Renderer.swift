@@ -534,6 +534,7 @@ final class Renderer {
                      color: Vec4(0.12, 0.16, 0.22, 1), rough: 0.82)
         }
         drawVirtualAtmosphere(enc: enc, game: game, activeRoom: activeRoom)
+        drawYouTubeCinemaLighting(enc: enc, game: game, activeRoom: activeRoom)
 
         // Friends from the watch party sit next to you.
         if let s = game.seatedAt, s.room == activeRoom, visibleRooms.contains(s.room), !partyGuests.isEmpty {
@@ -596,6 +597,46 @@ final class Renderer {
             drawCube(enc, model: base * Mat4.translation(Vec3(0, 0.45, 0)) * Mat4.scale(Vec3(0.34, 0.9, 0.24)), color: Vec4(0.15, 0.17, 0.25, 1))
             drawCube(enc, model: base * Mat4.translation(Vec3(0, 1.2, 0)) * Mat4.scale(Vec3(0.5, 0.65, 0.3)), color: Vec4(0.75, 0.1, 0.12, 1))
             drawCube(enc, model: base * Mat4.translation(Vec3(0, 1.7, 0)) * Mat4.scale(Vec3(0.26, 0.28, 0.26)), color: Vec4(0.85, 0.65, 0.5, 1))
+        }
+    }
+
+    /// On-screen 4DX LED rails by the actual theater screen. Music and edit
+    /// presets subtly brighten colored strips on the playback clock, with
+    /// clamped intensity and no seizure-risk flashing or scene-content claims.
+    private func drawYouTubeCinemaLighting(enc: MTLRenderCommandEncoder,
+                                           game: CinemaGame, activeRoom: Int?) {
+        guard let youtubeCinema, youtubeCinema.playing,
+              youtubeCinema.preset != .off,
+              let occupied = game.seatedAt, occupied.room == activeRoom else { return }
+        let seconds = Float(youtubeCinema.playbackTime)
+        let bpm = Float(max(60, min(200, youtubeCinema.bpm)))
+        let beat = seconds * bpm / 60
+        let fractional = beat - floorf(beat)
+        let envelope = expf(-fractional * 4)
+        let lit = max(0.18, min(0.65, 0.2 + envelope * 0.35))
+        let tint: Vec4
+        switch youtubeCinema.preset {
+        case .edits: tint = Vec4(0.2, 0.77, 0.97, 1)
+        case .concert: tint = Vec4(0.95, 0.25, 0.7, 1)
+        case .minecraft: tint = Vec4(0.3, 0.9, 0.55, 1)
+        case .cinematic: tint = Vec4(0.96, 0.75, 0.28, 1)
+        case .off: return
+        }
+        let world = CinemaWorld.transform(room: occupied.room)
+        // Narrow light rails flank the screen masking without obscuring video.
+        for side in [Float(0.6), 13.4] {
+            let p = world.point(Vec3(0.85, 1.2, side))
+            drawCube(enc, model: Mat4.translation(p) *
+                        Mat4.scale(Vec3(0.10, 4.8, 0.12)),
+                     color: tint * lit, emissive: 0.28 + lit * 0.75, rough: 0.32)
+        }
+        for side in [Float(1.5), 12.5] {
+            for position in [Float(6), 11, 16, 20] {
+                let p = world.point(Vec3(position, CinemaWorld.localGround(position) + 3.65, side))
+                drawCube(enc, model: Mat4.translation(p) *
+                            Mat4.scale(Vec3(0.65, 0.06, 0.07)),
+                         color: tint * lit, emissive: 0.25 + lit * 0.6, rough: 0.35)
+            }
         }
     }
 
