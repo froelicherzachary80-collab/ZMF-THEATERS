@@ -1,9 +1,9 @@
-name: Quick iOS 4DX MVP IPA
+name: Quick iOS 4DX v0.4.1 IPA
 
 on:
   push:
     branches:
-      - feature/ios-4dx-mvp-03-05-06-07
+      - feature/ios-v0.4.1-youtube-trailers-atmosphere
     paths:
       - "ZMFTheaters/**"
       - "ZMFTheaters.xcodeproj/**"
@@ -37,18 +37,18 @@ jobs:
         run: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/ZMFTheaters.app Payload/
-          zip -qry ZMFTheaters-4DX-MVP-unsigned.ipa Payload
-          ls -lh ZMFTheaters-4DX-MVP-unsigned.ipa
+          zip -qry ZMFTheaters-v0.4.1-4DX-unsigned.ipa Payload
+          ls -lh ZMFTheaters-v0.4.1-4DX-unsigned.ipa
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ZMFTheaters-4DX-MVP-iOS-unsigned
-          path: ZMFTheaters-4DX-MVP-unsigned.ipa
+          name: ZMFTheaters-v0.4.1-4DX-iOS-unsigned
+          path: ZMFTheaters-v0.4.1-4DX-unsigned.ipa
           if-no-files-found: error
       - name: Upload build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ZMFTheaters-4DX-MVP-build-log
+          name: ZMFTheaters-v0.4.1-4DX-build-log
           path: build.log
           if-no-files-found: ignore
