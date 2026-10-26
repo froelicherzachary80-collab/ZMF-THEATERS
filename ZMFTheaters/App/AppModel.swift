@@ -248,6 +248,7 @@ final class AppModel: ObservableObject {
         game.debugPlace(CinemaWorld.seatPosition(room: id, row: 4, seat: 3),
                         yaw: CinemaWorld.screenYaw(id), pitch: 0)
         game.sit(room: id, row: 4, seat: 3)
+        game.recenterCinemaScreen()
         youtubeCinema.open(videoID: videoID, title: title,
                            preset: settings.youtubeCinemaPreset,
                            bpm: settings.youtubeCinemaBPM,
