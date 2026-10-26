@@ -152,6 +152,42 @@ final class CinemaLogicTests: XCTestCase {
         XCTAssertEqual(engine.seatTilt, .zero)
     }
 
+    func testYouTubeCinemaSessionClockAndManualCutRecording() {
+        let cinema = YouTubeCinemaSession()
+        cinema.open(videoID: "dQw4w9WgXcQ", title: "Test",
+                    preset: .edits, bpm: 140, cuts: [5, 4, 4, .nan, -2])
+        XCTAssertEqual(cinema.bpm, 140)
+        XCTAssertEqual(cinema.cutMarks, [4, 5])
+        cinema.receive(playing: true, seconds: 7.12)
+        XCTAssertEqual(cinema.recordCut().last!, 7.12, accuracy: 0.001)
+        XCTAssertEqual(cinema.cutMarks.count, 3)
+        cinema.receive(playing: false, seconds: 7.5)
+        XCTAssertEqual(cinema.recordCut().count, 3)
+        cinema.close()
+        XCTAssertNil(cinema.video)
+        XCTAssertTrue(cinema.cutMarks.isEmpty)
+    }
+
+    func testYouTubeMotionIsBoundedAndStopsWhenClosed() {
+        let engine = FourDXEngine()
+        engine.start(haptics: false)
+        let cuts = [0.5, 1, 2, 3.5]
+        for f in 0..<120 {
+            engine.updateYouTubeCinema(dt: 1 / 60, timestamp: Double(f) / 60, intensity: 1,
+                seatForward: Vec3(0, 0, 1), preset: .edits, bpm: 125, cuts: cuts)
+            XCTAssertLessThanOrEqual(engine.rumble, 0.38)
+            XCTAssertLessThan(engine.seatOffset.y.magnitude, 0.2)
+            XCTAssertLessThan(engine.seatTilt.x.magnitude, 0.2)
+            XCTAssertEqual(engine.strobe, 0)
+        }
+        engine.updateYouTubeCinema(dt: 1 / 60, timestamp: 0.2, intensity: 1,
+            seatForward: Vec3(0, 0, 1), preset: .off, bpm: 125, cuts: [])
+        XCTAssertEqual(engine.rumble, 0)
+        engine.stop()
+        XCTAssertEqual(engine.seatTilt, .zero)
+        XCTAssertEqual(engine.seatOffset, .zero)
+    }
+
     func testRotationFillsTwelveRoomsWithoutDuplicatesAndRespectsEras() {
         let s = AppSettings()
         let (assign, notes) = RotationDirector.select(candidates: library(), index: 5, settings: s, recent: [])
