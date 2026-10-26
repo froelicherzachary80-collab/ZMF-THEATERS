@@ -192,15 +192,74 @@ struct PreshowAdminView: View {
     @EnvironmentObject var settingsStore: SettingsStore
     @State private var importing = false
     @State private var files: [URL] = []
+    @State private var youtubeLink = ""
+    @State private var youtubeTitle = ""
+    @State private var youtubeFormat: TrailerPresentation = .standard
+    @State private var linkError: String?
 
     var body: some View {
         Form {
             Section("Sequence") {
                 Toggle("Preshow before every screening", isOn: $settingsStore.settings.preshowEnabled)
+                Toggle("Standard trailers", isOn: $settingsStore.settings.standardTrailersEnabled)
+                Toggle("4DX trailers (virtual preview motion)", isOn: $settingsStore.settings.fourDXTrailersEnabled)
                 Stepper("Welcome: \(settingsStore.settings.welcomeSeconds)s", value: $settingsStore.settings.welcomeSeconds, in: 3...120)
                 Stepper("Trailers: up to \(settingsStore.settings.maxTrailers)", value: $settingsStore.settings.maxTrailers, in: 0...6)
                 Stepper("ZMF presentation: \(settingsStore.settings.introSeconds)s", value: $settingsStore.settings.introSeconds, in: 3...60)
                 Stepper("Countdown: \(settingsStore.settings.countdownSeconds)s", value: $settingsStore.settings.countdownSeconds, in: 3...30)
+            }
+            Section("YouTube trailer links") {
+                TextField("YouTube URL — youtube.com/watch?v=…", text: $youtubeLink)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                TextField("Display title", text: $youtubeTitle)
+                Picker("Preview format", selection: $youtubeFormat) {
+                    ForEach(TrailerPresentation.allCases) { format in
+                        Text(format.label).tag(format)
+                    }
+                }
+                Button("Add YouTube trailer") {
+                    guard let id = PreshowYouTubeTrailer.videoID(from: youtubeLink) else {
+                        linkError = "Enter a public YouTube watch, Shorts or youtu.be HTTPS link."
+                        return
+                    }
+                    guard !settingsStore.settings.youtubeTrailers.contains(where: { $0.videoID == id }) else {
+                        linkError = "This trailer is already in your preshow list."
+                        return
+                    }
+                    let title = youtubeTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                    settingsStore.settings.youtubeTrailers.append(PreshowYouTubeTrailer(
+                        title: title.isEmpty ? "YouTube Trailer" : String(title.prefix(100)),
+                        videoID: id, presentation: youtubeFormat))
+                    youtubeLink = ""
+                    youtubeTitle = ""
+                    linkError = nil
+                }.disabled(youtubeLink.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if let linkError {
+                    Text(linkError).font(.caption).foregroundStyle(.red)
+                }
+                ForEach(settingsStore.settings.youtubeTrailers) { trailer in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(trailer.title).font(.subheadline.bold())
+                            Text(trailer.presentation.label + " · " + trailer.videoID)
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Menu {
+                            Button("Standard") { setType(trailer.id, .standard) }
+                            Button("4DX motion") { setType(trailer.id, .fourDX) }
+                            Button("Remove", role: .destructive) {
+                                settingsStore.settings.youtubeTrailers.removeAll { $0.id == trailer.id }
+                            }
+                        } label: { Image(systemName: "ellipsis.circle").font(.title3) }
+                    }
+                }.onMove { source, destination in
+                    settingsStore.settings.youtubeTrailers.move(fromOffsets: source, toOffset: destination)
+                }
+                Text("Paste official public YouTube links. Videos play through YouTube's embedded player; some uploaders disable embedding or require a tap to start. No video is downloaded. Use Next to skip unavailable previews.")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
             Section {
                 ForEach(files, id: \.self) { f in Text(f.lastPathComponent).font(.caption) }
@@ -228,6 +287,11 @@ struct PreshowAdminView: View {
             }
             reload()
         }
+    }
+
+    private func setType(_ id: UUID, _ format: TrailerPresentation) {
+        guard let index = settingsStore.settings.youtubeTrailers.firstIndex(where: { $0.id == id }) else { return }
+        settingsStore.settings.youtubeTrailers[index].presentation = format
     }
 
     private func reload() {
