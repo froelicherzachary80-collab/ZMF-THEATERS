@@ -31,12 +31,13 @@ enum CinemaScreenProjection {
         // prevents WebKit's square corners spilling into the black masking.
         let halfW = CinemaWorld.screenSize.x * 0.482
         let halfH = CinemaWorld.screenSize.y * 0.482
-        let points = [
-            centre - right * halfW + up * halfH,
-            centre + right * halfW + up * halfH,
-            centre + right * halfW - up * halfH,
-            centre - right * halfW - up * halfH
-        ]
+        let lateral: Vec3 = right * halfW
+        let vertical: Vec3 = up * halfH
+        let upperLeft: Vec3 = centre - lateral + vertical
+        let upperRight: Vec3 = centre + lateral + vertical
+        let lowerRight: Vec3 = centre + lateral - vertical
+        let lowerLeft: Vec3 = centre - lateral - vertical
+        let points: [Vec3] = [upperLeft, upperRight, lowerRight, lowerLeft]
         let fov = max(30, min(75, verticalFOV)) * .pi / 180
         let proj = Mat4.perspective(fovyRadians: fov,
                                     aspect: Float(viewport.width / viewport.height),
