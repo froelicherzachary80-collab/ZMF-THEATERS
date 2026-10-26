@@ -77,7 +77,7 @@ struct TicketPurchaseView: View {
     private var formatPicker: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Format").font(.headline)
-            HStack {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) {
                 ForEach(ScreeningFormat.allCases) { f in
                     let locked = f.uses4DX && !model.fourDXAvailable
                     Button {

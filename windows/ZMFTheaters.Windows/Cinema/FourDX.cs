@@ -30,9 +30,8 @@ public static class FourDXPreview
     }
 }
 
-/// Derives 4DX cues from the picture (motion energy and sudden brightness over
-/// an 8×8 grid) and drives the motion-seat camera, strobes, smoke and a
-/// bHaptics TactSuit Air.
+/// Conservative picture-motion fallback, not a semantic event detector.
+/// No impact, smoke or flash is inferred from brightness alone.
 public sealed class FourDXEngine
 {
     readonly float[] prev = new float[64];
@@ -59,7 +58,7 @@ public sealed class FourDXEngine
         }
         else t += dt;
         cutHold = Math.Max(0, cutHold - dt);
-        double motion = 0, bright = 0;
+        double motion = 0;
         if (bgra != null && w > 8 && h > 8 && (long)w * h * 4 <= bgra.Length)
         {
             for (int gy = 0; gy < 8; gy++)
@@ -70,10 +69,9 @@ public sealed class FourDXEngine
                     float lum = (0.0722f * bgra[i] + 0.7152f * bgra[i + 1] + 0.2126f * bgra[i + 2]) / 255f;
                     int k = gy * 8 + gx;
                     motion += Math.Abs(lum - prev[k]);
-                    bright += lum;
                     prev[k] = lum;
                 }
-            motion /= 64; bright /= 64;
+            motion /= 64;
         }
         if (!primed) { primed = true; motion = 0; }
         // A brightness sample cannot distinguish lightning, edits or explosions.

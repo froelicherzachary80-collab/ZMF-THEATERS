@@ -396,7 +396,7 @@ struct FourDXAdminView: View {
             Section("Effects") {
                 VStack(alignment: .leading) {
                     Text("Intensity: \(Int(settingsStore.settings.fourDXIntensity * 100))%")
-                    Slider(value: $settingsStore.settings.fourDXIntensity, in: 0...2)
+                    Slider(value: $settingsStore.settings.fourDXIntensity, in: 0...1)
                 }
                 Toggle("iPhone haptics (Taptic Engine rumble)", isOn: $settingsStore.settings.fourDXHaptics)
                 Stepper("4DX ticket: Z$\(settingsStore.settings.fourDXPrice)", value: $settingsStore.settings.fourDXPrice, in: 0...2000, step: 25)

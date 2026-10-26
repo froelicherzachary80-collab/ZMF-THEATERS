@@ -29,10 +29,8 @@ enum FourDX {
     }
 }
 
-/// Turns what's happening on screen into motion-seat movement, rumble, strobes
-/// and fog bursts. 4DX cues are derived live from the picture (motion energy
-/// and sudden brightness spikes across an 8×8 grid computed on the GPU), so
-/// they work for every film without hand-authored effect tracks.
+/// Conservative picture-motion fallback. This is not a semantic event detector.
+/// Flash/impact effects stay disabled until event-specific evidence is available.
 @MainActor
 final class FourDXEngine {
     private(set) var rumble: Float = 0
@@ -92,6 +90,8 @@ final class FourDXEngine {
 
     /// `grid` = 64 colour samples of the current screen image.
     func update(grid: UnsafePointer<Vec4>?, dt: Float, intensity: Float, seatForward: Vec3, timestamp: Double = 0) {
+        guard running else { return }
+        let timestamp = timestamp.isFinite ? max(0, timestamp) : 0
         let dt = dt.isFinite ? max(0, min(0.1, dt)) : 0
         let intensity = intensity.isFinite ? max(0, min(1, intensity)) : 0
         if let previous = lastTimestamp, timestamp < previous || timestamp - previous > 0.5 {
@@ -102,17 +102,14 @@ final class FourDXEngine {
         t = Float(timestamp)
         cutHold = max(0, cutHold - dt)
         var motion: Float = 0
-        var bright: Float = 0
         if running, let grid {
             for i in 0..<64 {
                 let c = grid[i]
                 let lum = c.x * 0.2126 + c.y * 0.7152 + c.z * 0.0722
                 motion += abs(lum - prev[i])
-                bright += lum
                 prev[i] = lum
             }
             motion /= 64
-            bright /= 64
         }
         if !primed { primed = true; motion = 0 }
         // Brightness alone is not event evidence. No impact, smoke or flash cues.

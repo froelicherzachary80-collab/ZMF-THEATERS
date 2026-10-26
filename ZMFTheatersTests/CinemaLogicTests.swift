@@ -39,7 +39,7 @@ final class CinemaLogicTests: XCTestCase {
         let engine = FourDXEngine()
         engine.start(haptics: false)
         for i in 0..<60 {
-            var samples = [Vec4](repeating: Vec4(repeating: i % 2 == 0 ? 0 : 1), count: 64)
+            let samples = [Vec4](repeating: Vec4(repeating: i % 2 == 0 ? 0 : 1), count: 64)
             samples.withUnsafeBufferPointer { grid in
                 engine.update(grid: grid.baseAddress, dt: 1 / 24, intensity: 1,
                               seatForward: Vec3(0, 0, 1), timestamp: Double(i) / 24)
@@ -47,7 +47,12 @@ final class CinemaLogicTests: XCTestCase {
             XCTAssertEqual(engine.strobe, 0)
             XCTAssertEqual(engine.fogBoost, 0)
         }
+        engine.update(grid: nil, dt: .nan, intensity: .infinity,
+                      seatForward: Vec3(0, 0, 1), timestamp: .nan)
+        XCTAssertTrue(engine.seatOffset.x.isFinite)
         engine.stop()
+        engine.update(grid: nil, dt: 0.016, intensity: 1,
+                      seatForward: Vec3(0, 0, 1), timestamp: .nan)
         XCTAssertEqual(engine.rumble, 0)
         XCTAssertEqual(engine.seatOffset, .zero)
         XCTAssertEqual(engine.seatTilt, .zero)
