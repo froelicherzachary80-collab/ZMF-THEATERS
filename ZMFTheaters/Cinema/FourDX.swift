@@ -330,6 +330,67 @@ final class FourDXEngine {
         }
     }
 
+    /// On-device clock-synchronized virtual cinema cues. With protected YouTube
+    /// playback the iframe exposes time and play/pause, NOT decoded video frames
+    /// or audio FFT. The rhythm is selected by the user and cut markers are
+    /// placed by the user while watching. No automatic edit detection claimed.
+    func updateYouTubeCinema(dt: Float, timestamp: Double, intensity: Float,
+                             seatForward: Vec3, preset: YouTubeMotionPreset,
+                             bpm: Double, cuts: [Double]) {
+        guard running else { return }
+        if preset == .off { resetMotion(); return }
+        let seconds = timestamp.isFinite ? max(0, timestamp) : 0
+        let b = bpm.isFinite ? max(60, min(200, bpm)) : 120
+        let step = dt.isFinite ? max(0, min(0.1, dt)) : 0
+        let strength = intensity.isFinite ? max(0, min(1, intensity)) : 0
+        if !inTrailerPreview { resetMotion(); inTrailerPreview = true }
+        if let previous = lastTimestamp, seconds < previous - 0.16 || seconds - previous > 1.5 {
+            resetMotion(); inTrailerPreview = true
+        }
+        lastTimestamp = seconds
+
+        // Beat envelope varies by experience. Sharp marked cut cues only fire
+        // near a user-provided edit marker, not an arbitrary camera change.
+        let beat = Float(seconds * b / 60)
+        let cycle = beat - floorf(beat)
+        let onset = expf(-cycle * 9)
+        let marker = cuts.contains { abs($0 - seconds) < 0.10 }
+        let cutPulse: Float = marker ? 0.32 : 0
+        let motion: Float
+        let frequency: Float
+        switch preset {
+        case .edits: motion = 0.055; frequency = 1.45
+        case .concert: motion = 0.038; frequency = 0.75
+        case .minecraft: motion = 0.04; frequency = 1.2
+        case .cinematic: motion = 0.03; frequency = 0.4
+        case .off: motion = 0; frequency = 0
+        }
+        let t = Float(seconds)
+        let pulse = min(0.38, (0.04 + onset * 0.19 + cutPulse) * strength)
+        let alpha = 1 - expf(-step * (preset == .edits ? 9 : 5))
+        let direction = sinf(t * frequency)
+        let forward = simd_length_squared(seatForward) > 0.01 ? simd_normalize(seatForward) : Vec3(0, 0, 1)
+        let horizontal = simd_cross(forward, Vec3(0, 1, 0))
+        let right = simd_length_squared(horizontal) > 0.00001 ? simd_normalize(horizontal) : Vec3(1, 0, 0)
+        let targetOffset = right * (direction * motion * strength) +
+            Vec3(0, sinf(t * frequency * 0.8) * 0.037 * strength + pulse * 0.032, 0) +
+            forward * (-pulse * 0.08)
+        let targetTilt = Vec2(sinf(t * frequency * 0.82) * 0.045 * strength,
+                             direction * 0.065 * strength)
+        seatOffset += (targetOffset - seatOffset) * alpha
+        seatTilt += (targetTilt - seatTilt) * alpha
+        rumble += (pulse - rumble) * alpha
+        motionKind = cutPulse > 0 ? .turbulence : (direction > 0 ? .bankRight : .bankLeft)
+        strobe = 0
+        updateAtmosphere(timestamp: seconds, activity: rumble)
+        if let player = rumblePlayer, seconds - lastHapticUpdate > 0.075 {
+            lastHapticUpdate = seconds
+            try? player.sendParameters([CHHapticDynamicParameter(
+                parameterID: .hapticIntensityControl, value: min(0.3, rumble), relativeTime: 0)],
+                atTime: CHHapticTimeImmediate)
+        }
+    }
+
     private func updateAtmosphere(timestamp: Double, activity: Float) {
         let scene = Int(max(0, timestamp) / 14) % 4
         let pulse = 0.35 + 0.65 * max(0, min(1, (activity + 0.07) * 5))
