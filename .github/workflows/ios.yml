@@ -144,7 +144,7 @@ jobs:
           path: shots/*.png
 
       - name: Publish previews to the ci-screenshots branch
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/claude/zmf-theaters-v0.1'
         run: |
           mkdir -p previews
           for f in shots/*.png; do
@@ -251,13 +251,3 @@ jobs:
           name: build-log
           path: build.log
 
-      - name: Attach IPA to the preview release
-        if: github.event_name == 'push'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG=v0.3.0-preview
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --prerelease --target "$GITHUB_SHA" \
-            --title "ZMF THEATERS+ v0.3 preview" --notes "iPhone IPA and Windows app builds from CI."
-          gh release upload "$TAG" ZMFTheaters-unsigned.ipa --clobber
-          if ls signed/*.ipa >/dev/null 2>&1; then gh release upload "$TAG" signed/*.ipa --clobber; fi

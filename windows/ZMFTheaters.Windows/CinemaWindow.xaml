@@ -89,11 +89,12 @@
                         <TextBlock x:Name="SelTitle" FontSize="19" FontWeight="Bold" TextWrapping="Wrap" Text="Choose a film"/>
                         <TextBlock x:Name="SelRoom" Foreground="{StaticResource GoldBrush}" FontWeight="Bold" Margin="0,4"/>
                         <TextBlock Text="Format" FontWeight="Bold" Margin="0,10,0,4"/>
-                        <StackPanel Orientation="Horizontal">
+                        <UniformGrid Columns="2" Rows="2">
                             <RadioButton x:Name="Fmt2D" Content="2D  Z$150" Foreground="White" Margin="0,0,14,0" IsChecked="True" Checked="OnFormatChanged"/>
                             <RadioButton x:Name="Fmt3D" Content="3D red/cyan  Z$225" Foreground="White" Margin="0,0,14,0" Checked="OnFormatChanged"/>
-                            <RadioButton x:Name="Fmt4DX" Content="4DX  Z$400" Foreground="#80DEEA" Checked="OnFormatChanged"/>
-                        </StackPanel>
+                            <RadioButton x:Name="Fmt4DX3D" Content="Auto 4DX 3D  Z$400" Foreground="#80DEEA" Checked="OnFormatChanged"/>
+                            <RadioButton x:Name="Fmt4DX" Content="Auto 4DX  Z$400" Foreground="#80DEEA" Checked="OnFormatChanged"/>
+                        </UniformGrid>
                         <TextBlock x:Name="FormatNote" Foreground="{StaticResource DimTextBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,6"/>
                         <TextBlock Text="SCREEN" HorizontalAlignment="Center" Foreground="{StaticResource DimTextBrush}" Margin="0,8,0,4"/>
                         <UniformGrid x:Name="SeatGrid" Rows="8" Columns="8" Width="360" Height="250"/>
@@ -108,3 +109,4 @@
         </Grid>
     </Grid>
 </Window>
+

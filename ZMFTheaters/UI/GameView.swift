@@ -280,7 +280,7 @@ struct ScreeningControls: View {
                 if let st = model.stereoStatus, session.phase == .feature {
                     Label(st, systemImage: "eyeglasses").font(.caption2).foregroundStyle(.cyan).lineLimit(1)
                 }
-                if session.ticket?.screeningFormat == .fourDX, session.phase == .feature {
+                if session.ticket?.screeningFormat.uses4DX == true, session.phase == .feature {
                     Label("4DX", systemImage: "wind").font(.caption2.bold()).foregroundStyle(.cyan)
                 }
                 switch session.phase {
@@ -397,3 +397,4 @@ struct FullscreenOverlay: View {
         }
     }
 }
+

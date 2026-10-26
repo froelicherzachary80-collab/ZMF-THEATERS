@@ -565,7 +565,7 @@ final class Renderer {
     // MARK: 3D conversion
 
     private func wants3D(_ session: TheaterSession) -> Bool {
-        session.ticket?.screeningFormat == .anaglyph3D && session.screenEngine === session.feature
+        session.ticket?.screeningFormat.usesDepth == true && session.screenEngine === session.feature
     }
 
     /// Uploads the newest stabilised depth map and synthesises the red/cyan frame.
@@ -609,7 +609,7 @@ final class Renderer {
 
     /// Human-readable 3D state for the screening controls.
     func stereoStatus(for session: TheaterSession) -> String? {
-        guard session.ticket?.screeningFormat == .anaglyph3D else { return nil }
+        guard session.ticket?.screeningFormat.usesDepth == true else { return nil }
         if !depth.isAvailable { return "3D unavailable (\(depth.loadError ?? "no model")) · playing 2D" }
         if stereoActive { return String(format: "3D · depth %.0f Hz · wear red/cyan glasses", depth.measuredHz) }
         return "3D · estimating depth…"
@@ -618,12 +618,12 @@ final class Renderer {
     // MARK: 4DX
 
     private func apply4DX(session: TheaterSession, game: CinemaGame, dt: Float) {
-        let want = session.ticket?.screeningFormat == .fourDX && session.phase == .feature && FourDX.isPreviewActive(settings: settings)
+        let want = session.ticket?.screeningFormat.uses4DX == true && session.phase == .feature && session.feature.player.rate > 0 && FourDX.isPreviewActive(settings: settings)
         if want && !fourDX.running { fourDX.start(haptics: settings.fourDXHaptics) }
         if !want && fourDX.running { fourDX.stop() }
         let grid = screenAverage.contents().bindMemory(to: Vec4.self, capacity: 65).advanced(by: 1)
         let forward = game.seatedAt.map { forwardVector(yaw: CinemaWorld.screenYaw($0.room)) } ?? Vec3(0, 0, 1)
-        fourDX.update(grid: fourDX.running ? UnsafePointer(grid) : nil, dt: dt, intensity: Float(settings.fourDXIntensity), seatForward: forward)
+        fourDX.update(grid: fourDX.running ? UnsafePointer(grid) : nil, dt: dt, intensity: Float(settings.fourDXIntensity), seatForward: forward, timestamp: session.feature.player.currentTime().seconds)
         game.seatMotion = (fourDX.seatOffset, fourDX.seatTilt)
     }
 
@@ -637,7 +637,7 @@ final class Renderer {
                 let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
                 var cv: CVMetalTexture?
                 CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pb, nil, .bgra8Unorm_srgb, w, h, 0, &cv)
-                if session.ticket?.screeningFormat == .anaglyph3D, engine === session.feature {
+                if session.ticket?.screeningFormat.usesDepth == true, engine === session.feature {
                     depth.submit(pb, rate: settings.depthUpdatesPerSecond)
                 }
                 if let cv, let tex = CVMetalTextureGetTexture(cv) {
@@ -671,3 +671,4 @@ final class Renderer {
         return slideTexture
     }
 }
+

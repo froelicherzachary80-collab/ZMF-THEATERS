@@ -13,6 +13,12 @@ public partial class App : Application
         base.OnStartup(e);
         var args = e.Args;
 
+        if (args.Length >= 2 && args[0] == "--selftest-4dx")
+        {
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            Shutdown(FourDXSelfTest.Run(args[1]));
+            return;
+        }
         // CI: download the depth model and run one 2D→3D conversion headlessly.
         if (args.Length >= 2 && args[0] == "--selftest-3d")
         {
@@ -30,3 +36,4 @@ public partial class App : Application
         new MainWindow().Show();
     }
 }
+

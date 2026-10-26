@@ -16,11 +16,11 @@ public static class FourDXPreview
     public static DateTime StartUtc => TimeZoneInfo.ConvertTimeToUtc(new DateTime(2026, 10, 27, 0, 0, 0, DateTimeKind.Unspecified), Ny);
     public static DateTime EndUtc => TimeZoneInfo.ConvertTimeToUtc(new DateTime(2026, 10, 29, 0, 0, 0, DateTimeKind.Unspecified), Ny);
 
-    public static bool Active(bool force) => force || (DateTime.UtcNow >= StartUtc && DateTime.UtcNow < EndUtc);
+    public static bool Active(bool force) => true;
 
     public static string Teaser(bool force)
     {
-        if (Active(force)) return "4DX PREVIEW NOW PLAYING · choose 4DX at the Box Office";
+        if (Active(force)) return "AUTO 4DX · Available at the Box Office";
         if (DateTime.UtcNow < StartUtc)
         {
             var days = (int)Math.Ceiling((StartUtc - DateTime.UtcNow).TotalDays);
@@ -30,13 +30,13 @@ public static class FourDXPreview
     }
 }
 
-/// Derives 4DX cues from the picture (motion energy and sudden brightness over
-/// an 8×8 grid) and drives the motion-seat camera, strobes, smoke and a
-/// bHaptics TactSuit Air.
+/// Conservative picture-motion fallback, not a semantic event detector.
+/// No impact, smoke or flash is inferred from brightness alone.
 public sealed class FourDXEngine
 {
     readonly float[] prev = new float[64];
-    float emaBright;
+    double lastTimestamp = double.NaN;
+    double cutHold;
     bool primed;
     double t;
 
@@ -46,11 +46,20 @@ public sealed class FourDXEngine
     public double Impact { get; private set; }
     public (double x, double y, double pitch, double yaw) Seat { get; private set; }
 
-    public void Analyse(byte[]? bgra, int w, int h, double dt, double intensity)
+    public void Analyse(byte[]? bgra, int w, int h, double dt, double intensity, double timestamp = double.NaN)
     {
-        t += dt;
-        double motion = 0, bright = 0;
-        if (bgra != null && w > 8 && h > 8)
+        dt = double.IsFinite(dt) ? Math.Clamp(dt, 0, 0.1) : 0;
+        intensity = double.IsFinite(intensity) ? Math.Clamp(intensity, 0, 1) : 0;
+        if (double.IsFinite(timestamp))
+        {
+            if (double.IsFinite(lastTimestamp) && (timestamp < lastTimestamp || timestamp - lastTimestamp > 0.5)) Reset();
+            lastTimestamp = timestamp;
+            t = timestamp;
+        }
+        else t += dt;
+        cutHold = Math.Max(0, cutHold - dt);
+        double motion = 0;
+        if (bgra != null && w > 8 && h > 8 && (long)w * h * 4 <= bgra.Length)
         {
             for (int gy = 0; gy < 8; gy++)
                 for (int gx = 0; gx < 8; gx++)
@@ -60,32 +69,23 @@ public sealed class FourDXEngine
                     float lum = (0.0722f * bgra[i] + 0.7152f * bgra[i + 1] + 0.2126f * bgra[i + 2]) / 255f;
                     int k = gy * 8 + gx;
                     motion += Math.Abs(lum - prev[k]);
-                    bright += lum;
                     prev[k] = lum;
                 }
-            motion /= 64; bright /= 64;
+            motion /= 64;
         }
-        if (!primed) { emaBright = (float)bright; primed = true; motion = 0; }
-        bool cut = motion > 0.16;
-        var target = cut ? 0 : Math.Min(1, motion * 7) * intensity;
-        Rumble += (target - Rumble) * Math.Min(1, dt * 5);
-        Impact = 0;
-        var jump = bright - emaBright;
-        if (!cut && jump > 0.08)
-        {
-            Impact = Math.Min(1, jump * 5) * intensity;
-            Strobe = Math.Max(Strobe, Impact);
-            Smoke = Math.Min(1, Smoke + Impact * 0.6);
-        }
-        emaBright += (float)((bright - emaBright) * Math.Min(1, dt * 2));
-        Strobe *= Math.Exp(-dt * 7);
-        Smoke *= Math.Exp(-dt * 1.2);
+        if (!primed) { primed = true; motion = 0; }
+        // A brightness sample cannot distinguish lightning, edits or explosions.
+        // Until event-specific evidence exists, never synthesize impacts from it.
+        if (motion > 0.12) cutHold = 0.35;
+        var target = cutHold > 0 ? 0 : Math.Min(0.25, motion * 2) * intensity;
+        Rumble += (target - Rumble) * (1 - Math.Exp(-dt * 5));
+        Impact = Strobe = Smoke = 0;
         var sway = Rumble * 0.6 + Strobe;
         Seat = (Math.Sin(t * 17.7) * 0.008 * Rumble, Math.Sin(t * 23) * 0.006 * Rumble - Strobe * 0.03,
                 Math.Sin(t * 7.3) * 0.7 * sway, Math.Sin(t * 5.1 + 1.3) * 0.9 * sway);
     }
 
-    public void Reset() { Rumble = Strobe = Smoke = Impact = 0; Seat = default; primed = false; }
+    public void Reset() { Rumble = Strobe = Smoke = Impact = 0; Seat = default; primed = false; lastTimestamp = double.NaN; cutHold = 0.35; t = 0; Array.Clear(prev); }
 }
 
 /// Minimal client for bHaptics Player's local WebSocket API (the tact-js
@@ -97,6 +97,8 @@ public sealed class BHapticsClient : IAsyncDisposable
     DateTime lastSend = DateTime.MinValue;
     public string Status { get; private set; } = "TactSuit Air: not connected";
     public bool Connected => ws?.State == WebSocketState.Open;
+    public bool OutputEnabled { get; set; } = false; // opt-in until hardware protocol is validated
+    readonly SemaphoreSlim sendGate = new(1, 1);
 
     public async Task ConnectAsync()
     {
@@ -105,7 +107,7 @@ public sealed class BHapticsClient : IAsyncDisposable
             ws = new ClientWebSocket();
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
             await ws.ConnectAsync(new Uri("ws://127.0.0.1:15881/v2/feedbacks?app_id=com.zmf.theaters&app_name=ZMF%20THEATERS%2B"), cts.Token);
-            Status = "TactSuit Air: connected via bHaptics Player";
+            Status = "Player available · device connection unverified";
         }
         catch
         {
@@ -117,7 +119,7 @@ public sealed class BHapticsClient : IAsyncDisposable
     /// Sends rumble (whole vest, front + back) plus an impact burst on the chest.
     public async Task SendAsync(double rumble, double impact)
     {
-        if (!Connected || (DateTime.UtcNow - lastSend).TotalMilliseconds < 90) return;
+        if (!OutputEnabled || !Connected || (DateTime.UtcNow - lastSend).TotalMilliseconds < 90) return;
         lastSend = DateTime.UtcNow;
         int rumbleI = (int)Math.Clamp(rumble * 70, 0, 100);
         int hitI = (int)Math.Clamp(impact * 100, 0, 100);
@@ -137,12 +139,15 @@ public sealed class BHapticsClient : IAsyncDisposable
                 new { Type = "frame", Key = "zmf_4dx_back", Frame = new { Position = "VestBack", PathPoints = Array.Empty<object>(), DotPoints = Dots(hitI / 2), DurationMillis = 120 } },
             },
         };
+        if (!await sendGate.WaitAsync(0)) return;
         try
         {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(250));
             var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(msg));
-            await ws!.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None);
+            await ws!.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, timeout.Token);
         }
-        catch { Status = "TactSuit Air: connection lost"; }
+        catch { OutputEnabled = false; Status = "Player error · output stopped"; }
+        finally { sendGate.Release(); }
     }
 
     public async ValueTask DisposeAsync()
@@ -151,3 +156,4 @@ public sealed class BHapticsClient : IAsyncDisposable
         ws?.Dispose();
     }
 }
+
