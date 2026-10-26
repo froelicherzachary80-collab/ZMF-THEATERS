@@ -57,6 +57,10 @@ struct GameView: View {
             })
             .ignoresSafeArea()
 
+            if session.phase == .trailer, session.activeYouTubeTrailer != nil {
+                YouTubePreshowOverlay(session: session)
+            }
+
             if session.phase == .feature {
                 SubtitleOverlay(engine: session.feature, raised: hudVisible)
             }
