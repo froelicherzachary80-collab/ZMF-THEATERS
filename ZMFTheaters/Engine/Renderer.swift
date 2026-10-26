@@ -498,6 +498,34 @@ final class Renderer {
     }
 
     private func drawDynamic(enc: MTLRenderCommandEncoder, game: CinemaGame, visibleRooms: [Int], activeRoom: Int?, cam: Vec3) {
+        // The occupied motion rig is animated by the real playback-clock 4DX
+        // signal. These are virtual mechanics only; no physical chair moves.
+        if let seat = game.seatedAt, seat.room == activeRoom,
+           visibleRooms.contains(seat.room), fourDX.running {
+            let base = CinemaWorld.seatPosition(room: seat.room, row: seat.row, seat: seat.seat)
+            let yaw = CinemaWorld.screenYaw(seat.room)
+            let travel = game.seatMotion.offset
+            let swing = max(-0.035, min(0.035, game.seatMotion.tilt.y))
+            let body = Mat4.translation(base + travel * 0.85) * Mat4.rotationY(yaw + swing)
+            let steel = Vec4(0.42, 0.48, 0.54, 1)
+            let black = Vec4(0.055, 0.065, 0.08, 1)
+            let glow = Vec4(0.12, 0.72, 0.91, 1)
+            drawCube(enc, model: Mat4.translation(base + Vec3(0, 0.1, 0)) * Mat4.scale(Vec3(0.66, 0.13, 0.72)),
+                     color: black, rough: 0.5, metal: 0.65)
+            for x in [-0.25, 0.25] as [Float] {
+                for z in [-0.26, 0.26] as [Float] {
+                    let jack = base + Vec3(x, 0.24 + travel.y * 0.4, z)
+                    drawCube(enc, model: Mat4.translation(jack) * Mat4.scale(Vec3(0.065, 0.3, 0.065)),
+                             color: steel, rough: 0.3, metal: 0.8)
+                    drawCube(enc, model: Mat4.translation(jack + Vec3(0, 0.13, 0)) * Mat4.scale(Vec3(0.12, 0.045, 0.12)),
+                             color: glow, emissive: 0.8)
+                }
+            }
+            drawCube(enc, model: body * Mat4.translation(Vec3(0, 0.48, 0)) * Mat4.scale(Vec3(0.7, 0.14, 0.84)),
+                     color: black, rough: 0.8)
+            drawCube(enc, model: body * Mat4.translation(Vec3(0.51, 0.8, 0)) * Mat4.scale(Vec3(0.13, 0.72, 0.77)),
+                     color: Vec4(0.12, 0.16, 0.22, 1), rough: 0.82)
+        }
         // Friends from the watch party sit next to you.
         if let s = game.seatedAt, s.room == activeRoom, visibleRooms.contains(s.room), !partyGuests.isEmpty {
             let order = [1, -1, 2, -2, 3, -3, 4, -4].map { s.seat + $0 }.filter { (0..<Seating.seatsPerRow).contains($0) }
@@ -619,6 +647,9 @@ final class Renderer {
 
     private func apply4DX(session: TheaterSession, game: CinemaGame, dt: Float) {
         let want = session.ticket?.screeningFormat.uses4DX == true && session.phase == .feature && session.feature.player.rate > 0 && FourDX.isPreviewActive(settings: settings)
+        if want, let ticket = session.ticket {
+            fourDX.beginMedia(id: ticket.mediaId, duration: session.feature.duration)
+        }
         if want && !fourDX.running { fourDX.start(haptics: settings.fourDXHaptics) }
         if !want && fourDX.running { fourDX.stop() }
         let grid = screenAverage.contents().bindMemory(to: Vec4.self, capacity: 65).advanced(by: 1)
