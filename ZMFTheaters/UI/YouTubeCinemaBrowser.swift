@@ -228,7 +228,8 @@ struct YouTubeBrowserView: View {
 
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 9) {
-                        ForEach(suggested, id: \.0) { item in
+                        ForEach(suggested.indices, id: \.self) { index in
+                            let item = suggested[index]
                             Button(item.0) {
                                 query = item.1
                                 browser.search(item.1)
