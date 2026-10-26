@@ -39,6 +39,22 @@ enum Mat4 {
         simd_float4x4(diagonal: Vec4(s.x, s.y, s.z, 1))
     }
 
+    static func rotationX(_ a: Float) -> simd_float4x4 {
+        let c = cosf(a), s = sinf(a)
+        return simd_float4x4(columns: (
+            Vec4(1, 0, 0, 0), Vec4(0, c, s, 0),
+            Vec4(0, -s, c, 0), Vec4(0, 0, 0, 1)
+        ))
+    }
+
+    static func rotationZ(_ a: Float) -> simd_float4x4 {
+        let c = cosf(a), s = sinf(a)
+        return simd_float4x4(columns: (
+            Vec4(c, s, 0, 0), Vec4(-s, c, 0, 0),
+            Vec4(0, 0, 1, 0), Vec4(0, 0, 0, 1)
+        ))
+    }
+
     static func rotationY(_ a: Float) -> simd_float4x4 {
         let c = cosf(a), s = sinf(a)
         return simd_float4x4(columns: (
