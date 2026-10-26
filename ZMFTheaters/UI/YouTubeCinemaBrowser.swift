@@ -276,89 +276,158 @@ struct YouTubeBrowserView: View {
     }
 }
 
-/// The YouTube iframe remains visible and unmodified. The original ZMF
-/// cinematic environment and synchronized *virtual seat* run behind it.
+/// Official YouTube playback appears directly over the virtual auditorium
+/// movie screen, with position recalculated from the seated camera. This is
+/// screen-space WebKit composition, not extraction of restricted video frames.
+/// The full theater stays visible around the movie screen.
 struct YouTubeCinemaOverlay: View {
     @ObservedObject var cinema: YouTubeCinemaSession
     @EnvironmentObject var settingsStore: SettingsStore
+    @EnvironmentObject var game: CinemaGame
     let onBrowse: () -> Void
     let onClose: () -> Void
     @State private var advancedControls = false
+    @State private var toolbarVisible = true
 
     var body: some View {
         if let video = cinema.video {
-            GeometryReader { geometry in
-                let landscape = geometry.size.width > geometry.size.height
-                VStack(spacing: 8) {
-                    HStack(spacing: 10) {
-                        Label("YOUTUBE • ZMF CINEMA", systemImage: "play.rectangle.fill")
-                            .font(.caption.bold()).foregroundStyle(.white)
-                        Spacer()
-                        Text(cinema.preset == .off ? "2D" : "VIRTUAL 4DX")
-                            .font(.caption2.bold()).foregroundStyle(.cyan)
-                        Button { advancedControls.toggle() } label: { Image(systemName: "slider.horizontal.3") }
-                            .accessibilityLabel("4DX motion settings")
-                        Button(action: onBrowse) { Image(systemName: "magnifyingglass") }
-                            .accessibilityLabel("Browse more videos")
-                        Button(action: onClose) { Image(systemName: "xmark.circle.fill") }
-                            .accessibilityLabel("Close YouTube cinema")
-                    }
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
+            TimelineView(.periodic(from: .now, by: 1.0 / 24.0)) { _ in
+                GeometryReader { geometry in
+                    let size = geometry.size
+                    let projected = CinemaScreenProjection.projectedRect(
+                        game: game, viewport: size,
+                        verticalFOV: Float(settingsStore.settings.seatedFieldOfView))
+                    // Keep the WKWebView mounted across head movement, rather
+                    // than reloading the YouTube video whenever we look away.
+                    let rect = projected ?? CGRect(x: -1400, y: -1000, width: 40, height: 24)
 
-                    YouTubePreshowPlayer(trailer: video,
-                        onStateChange: { isPlaying, time in cinema.receive(playing: isPlaying, seconds: time) },
-                        onEnded: { cinema.receive(playing: false, seconds: cinema.seconds) },
-                        onError: { cinema.error = $0 }
-                    )
-                    .id(video.videoID)
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .background(.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
-                    .layoutPriority(1)
+                    ZStack(alignment: .bottom) {
+                        // A black projection masking surface hides the previous
+                        // movie title and "next showing" card during YouTube.
+                        Rectangle()
+                            .fill(.black)
+                            .frame(width: rect.width + 4, height: rect.height + 4)
+                            .position(x: rect.midX, y: rect.midY)
+                            .allowsHitTesting(false)
+                        YouTubePreshowPlayer(
+                            trailer: video,
+                            onStateChange: { isPlaying, seconds in
+                                cinema.receive(playing: isPlaying, seconds: seconds)
+                            },
+                            onEnded: { cinema.receive(playing: false, seconds: cinema.seconds) },
+                            onError: { cinema.error = $0 }
+                        )
+                        .id(video.videoID)
+                        .frame(width: max(40, rect.width), height: max(24, rect.height))
+                        .background(.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 3))
+                        .position(x: rect.midX, y: rect.midY)
+                        .allowsHitTesting(projected != nil)
 
-                    if let error = cinema.error {
-                        Text(error).font(.caption2).foregroundStyle(.orange)
-                    }
-                    HStack(spacing: 10) {
-                        Picker("4DX", selection: $cinema.preset) {
-                            ForEach(YouTubeMotionPreset.allCases) { mode in
-                                Text(mode.label).tag(mode)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: cinema.preset) { _, next in settingsStore.settings.youtubeCinemaPreset = next }
-                        Button {
-                            let cues = cinema.recordCut()
-                            if let id = cinema.videoID { settingsStore.settings.youtubeCueMarksByVideo[id] = cues }
-                        } label: {
-                            Label("Mark edit", systemImage: "waveform.path")
+                        // Compact theater controls stay outside the projected
+                        // screen; they disappear when the viewer chooses Hide.
+                        if toolbarVisible {
+                            VStack(spacing: 6) {
+                                HStack(spacing: 9) {
+                                    Image(systemName: "play.rectangle.fill").foregroundStyle(.red)
+                                    Text(video.title).lineLimit(1)
+                                        .font(.caption2.weight(.semibold))
+                                    Text(cinema.preset == .off ? "2D" : "4DX")
+                                        .font(.caption2.bold()).foregroundStyle(.cyan)
+                                    Spacer(minLength: 6)
+                                    Button { game.recenterCinemaScreen() } label: {
+                                        Label("CENTER", systemImage: "viewfinder")
+                                    }.accessibilityLabel("Recenter the movie screen")
+                                    Button { advancedControls.toggle() } label: {
+                                        Image(systemName: "slider.horizontal.3")
+                                    }.accessibilityLabel("4DX settings")
+                                    Button(action: onBrowse) {
+                                        Image(systemName: "magnifyingglass")
+                                    }.accessibilityLabel("Browse YouTube")
+                                    Button(action: onClose) {
+                                        Image(systemName: "xmark.circle.fill")
+                                    }.accessibilityLabel("Close YouTube")
+                                }
                                 .font(.caption2.bold())
+                                .buttonStyle(.borderless)
+
+                                HStack(spacing: 8) {
+                                    Picker("Mode", selection: $cinema.preset) {
+                                        ForEach(YouTubeMotionPreset.allCases) { mode in
+                                            Text(mode.label).tag(mode)
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
+                                    .onChange(of: cinema.preset) { _, mode in
+                                        settingsStore.settings.youtubeCinemaPreset = mode
+                                    }
+                                    Button {
+                                        let cues = cinema.recordCut()
+                                        if let id = cinema.videoID {
+                                            settingsStore.settings.youtubeCueMarksByVideo[id] = cues
+                                        }
+                                    } label: {
+                                        Label("MARK EDIT", systemImage: "waveform.path")
+                                    }
+                                    .disabled(!cinema.playing)
+                                    Button {
+                                        toolbarVisible = false
+                                    } label: {
+                                        Label("HIDE", systemImage: "eye.slash")
+                                    }
+                                    Spacer(minLength: 1)
+                                    Text("\(Int(cinema.bpm)) BPM · \(cinema.cutMarks.count) cues")
+                                        .font(.caption2.monospacedDigit())
+                                        .foregroundStyle(.white.opacity(0.7))
+                                }
+                                .font(.caption2)
+                                .buttonStyle(.borderless)
+                                if advancedControls {
+                                    HStack(spacing: 10) {
+                                        Text("Rhythm")
+                                        Slider(value: $cinema.bpm, in: 60...200, step: 5)
+                                            .onChange(of: cinema.bpm) { _, next in
+                                                settingsStore.settings.youtubeCinemaBPM = next
+                                            }
+                                        Button("Clear marks", role: .destructive) {
+                                            cinema.clearCuts()
+                                            if let id = cinema.videoID {
+                                                settingsStore.settings.youtubeCueMarksByVideo[id] = []
+                                            }
+                                        }
+                                    }.font(.caption2)
+                                }
+                                if let error = cinema.error {
+                                    Text(error).font(.caption2).foregroundStyle(.orange)
+                                }
+                            }
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(.black.opacity(0.84), in: RoundedRectangle(cornerRadius: 11))
+                            .frame(maxWidth: min(size.width - 45, 870))
+                            .padding(.bottom, 38)
+                            .transition(.opacity)
+                        } else {
+                            HStack {
+                                Button {
+                                    toolbarVisible = true
+                                } label: {
+                                    Label("4DX CONTROLS", systemImage: "slider.horizontal.3")
+                                        .font(.caption2.bold())
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 11)
+                                        .padding(.vertical, 7)
+                                        .background(.black.opacity(0.55), in: Capsule())
+                                }
+                                Spacer()
+                            }
+                            .padding(.leading, 14)
+                            .padding(.bottom, 39)
                         }
-                        .buttonStyle(.bordered)
-                        .disabled(!cinema.playing)
                     }
-                    if advancedControls {
-                        HStack(spacing: 10) {
-                            Text("Rhythm \(Int(cinema.bpm)) BPM").font(.caption2.bold())
-                            Slider(value: $cinema.bpm, in: 60...200, step: 5)
-                                .onChange(of: cinema.bpm) { _, next in settingsStore.settings.youtubeCinemaBPM = next }
-                            Text("\(cinema.cutMarks.count) cuts").font(.caption2).monospacedDigit()
-                            Button("Clear cuts", role: .destructive) {
-                                cinema.clearCuts()
-                                if let id = cinema.videoID { settingsStore.settings.youtubeCueMarksByVideo[id] = [] }
-                            }.font(.caption2).disabled(cinema.cutMarks.isEmpty)
-                        }
-                    }
-                    Text("4DX uses the official player clock + selected rhythm + your marked cuts; it cannot detect actual edits or sounds inside YouTube videos. Tap Play in the player.")
-                        .font(.caption2).foregroundStyle(.white.opacity(0.72)).lineLimit(2)
+                    .frame(width: size.width, height: size.height)
                 }
-                .padding(10)
-                .background(.black.opacity(0.87), in: RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).stroke(.cyan.opacity(0.25)))
-                .frame(maxWidth: landscape ? min(geometry.size.width * 0.77, 1050) : geometry.size.width - 16,
-                       maxHeight: geometry.size.height * 0.97)
-                .position(x: geometry.size.width * 0.5, y: geometry.size.height * 0.49)
             }
             .zIndex(10)
         }
