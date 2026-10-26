@@ -354,8 +354,17 @@ final class FourDXEngine {
         let beat = Float(seconds * b / 60)
         let cycle = beat - floorf(beat)
         let onset = expf(-cycle * 9)
-        let marker = cuts.contains { abs($0 - seconds) < 0.10 }
-        let cutPulse: Float = marker ? 0.32 : 0
+        // Cached cue timestamps are sorted. Binary search avoids scanning
+        // hundreds of marks every frame on long concert/Minecraft recordings.
+        var low = 0, high = cuts.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if cuts[mid] <= seconds { low = mid + 1 } else { high = mid }
+        }
+        let elapsed = low > 0 ? seconds - cuts[low - 1] : .infinity
+        // Fast impact followed by controlled return to neutral over 0.3 s.
+        let cutPulse: Float = elapsed >= 0 && elapsed < 0.35
+            ? 0.34 * expf(-Float(elapsed) * 12) : 0
         let motion: Float
         let frequency: Float
         switch preset {
@@ -366,21 +375,26 @@ final class FourDXEngine {
         case .off: motion = 0; frequency = 0
         }
         let t = Float(seconds)
-        let pulse = min(0.38, (0.04 + onset * 0.19 + cutPulse) * strength)
-        let alpha = 1 - expf(-step * (preset == .edits ? 9 : 5))
-        let direction = sinf(t * frequency)
+        let pulse = min(0.38, (0.04 + onset * (preset == .edits ? 0.24 : 0.18) + cutPulse) * strength)
+        let alpha = 1 - expf(-step * (preset == .edits ? 10 : 5))
+        // Beat phase reversals convey edit transitions without large or
+        // unpredictable head jerks; directional changes are time-synchronized.
+        let beatDirection: Float = sinf(beat * .pi * 0.5)
+        let direction = sinf(t * frequency) * 0.6 + beatDirection * 0.4
         let forward = simd_length_squared(seatForward) > 0.01 ? simd_normalize(seatForward) : Vec3(0, 0, 1)
         let horizontal = simd_cross(forward, Vec3(0, 1, 0))
         let right = simd_length_squared(horizontal) > 0.00001 ? simd_normalize(horizontal) : Vec3(1, 0, 0)
-        let targetOffset = right * (direction * motion * strength) +
-            Vec3(0, sinf(t * frequency * 0.8) * 0.037 * strength + pulse * 0.032, 0) +
-            forward * (-pulse * 0.08)
-        let targetTilt = Vec2(sinf(t * frequency * 0.82) * 0.045 * strength,
-                             direction * 0.065 * strength)
+        let targetOffset = right * (direction * (motion + cutPulse * 0.075) * strength) +
+            Vec3(0, sinf(t * frequency * 0.8) * 0.04 * strength + pulse * 0.055, 0) +
+            forward * (-pulse * 0.12)
+        let targetTilt = Vec2(sinf(t * frequency * 0.82) * 0.055 * strength,
+                             direction * 0.077 * strength + cutPulse * 0.11 * strength)
         seatOffset += (targetOffset - seatOffset) * alpha
         seatTilt += (targetTilt - seatTilt) * alpha
+        seatOffset = simd_clamp(seatOffset, Vec3(repeating: -0.16), Vec3(repeating: 0.16))
+        seatTilt = simd_clamp(seatTilt, Vec2(repeating: -0.13), Vec2(repeating: 0.13))
         rumble += (pulse - rumble) * alpha
-        motionKind = cutPulse > 0 ? .turbulence : (direction > 0 ? .bankRight : .bankLeft)
+        motionKind = cutPulse > 0.01 ? .turbulence : (direction > 0 ? .bankRight : .bankLeft)
         strobe = 0
         updateAtmosphere(timestamp: seconds, activity: rumble)
         if let player = rumblePlayer, seconds - lastHapticUpdate > 0.075 {
