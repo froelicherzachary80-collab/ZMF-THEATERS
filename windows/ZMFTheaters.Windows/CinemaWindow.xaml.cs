@@ -99,6 +99,9 @@ public partial class CinemaWindow : Window
     WriteableBitmap? stereoBitmap;
     StereoConverter? stereo;
     readonly FourDXEngine fourDX = new();
+    // Playback-clock event timeline. No semantic detector feeds it yet, so real
+    // films load an empty track and only the conservative motion fallback runs.
+    readonly Auto4DXScheduler timeline = new();
     BHapticsClient? tactsuit;
     JellyfinClient? api;
     string mediaSourceId = "";
@@ -717,6 +720,7 @@ public partial class CinemaWindow : Window
             player.Playing += (_, _) => Dispatcher.BeginInvoke(OnVlcPlaying);
             player.EndReached += (_, _) => Dispatcher.BeginInvoke(OnVlcEnded);
             player.EncounteredError += (_, _) => Dispatcher.BeginInvoke(() => Slide(ticket.Room, "PLAYBACK PROBLEM", "Couldn't open the stream", "Check that your Jellyfin server is reachable"));
+            timeline.Load(ticket.Film.Id, Array.Empty<Auto4DXEvent>());
             using var media = new Media(libVLC, new Uri(url), ":network-caching=2000");
             var start = party != null ? partyStart : (ticket.Film.ResumeTicks > 600_000_000 ? ticket.Film.ResumeTicks / 10_000_000.0 : 0);
             if (start > 1) media.AddOption($":start-time={start.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
@@ -755,6 +759,7 @@ public partial class CinemaWindow : Window
         if (ticket != null) Slide(ticket.Room, "THANK YOU FOR VISITING", "ZMF THEATERS+", "House lights up · please exit safely");
         houseTarget = 1;
         fourDX.Reset();
+        timeline.Stop();
         lastMouseMove = DateTime.UtcNow;
     }
 
@@ -798,9 +803,10 @@ public partial class CinemaWindow : Window
         if (ticket.Format.Uses4DX() && FourDXPreview.Active(config.Force4DX) && player.IsPlaying)
         {
             fourDX.Analyse(got ? frameBuf : null, w, h, dt, 1.0, CurrentSeconds);
-            _ = tactsuit?.SendAsync(fourDX.Rumble, fourDX.Impact);
+            timeline.Update(CurrentSeconds, true, dt);
+            _ = tactsuit?.SendAsync(Math.Max(fourDX.Rumble, timeline.Level(Auto4DXTargets.Seat)), timeline.Level(Auto4DXTargets.Haptics));
         }
-        else if (!player.IsPlaying) fourDX.Reset();
+        else if (!player.IsPlaying) { fourDX.Reset(); timeline.Update(CurrentSeconds, false, dt); }
 
         var len = Math.Max(1, player.Length / 1000.0);
         TimeText.Text = $"{Fmt(CurrentSeconds)} / {Fmt(len)}";
@@ -827,6 +833,7 @@ public partial class CinemaWindow : Window
             _ = api.ReportAsync("/Sessions/Playing/Stopped", ticket.Film.Id, mediaSourceId, playSessionId, CurrentSeconds, true);
         var p = player; var f = frames; var lib = libVLC;
         player = null; frames = null; libVLC = null;
+        timeline.Stop();
         if (p == null) return;
         ThreadPool.QueueUserWorkItem(_ =>
         {
@@ -887,6 +894,7 @@ public partial class CinemaWindow : Window
         seconds = Math.Clamp(seconds, 0, Math.Max(0, player.Length / 1000.0 - 1));
         if (party?.InGroup == true) { _ = party.SeekAsync(seconds); return; }
         player.Time = (long)(seconds * 1000);
+        timeline.Seek(seconds);
     }
 
     // MARK: Watch party

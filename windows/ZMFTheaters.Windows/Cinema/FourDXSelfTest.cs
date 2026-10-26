@@ -33,6 +33,7 @@ public static class FourDXSelfTest
         Check(Format.FourDX3D.Uses4DX() && Format.FourDX3D.UsesDepth(), "combined format enables both pipelines");
         Check(!Format.TwoD.Uses4DX() && !Format.TwoD.UsesDepth(), "2D enables neither pipeline");
         Check(FourDXPreview.Active(false), "4DX has no date expiration");
+        Auto4DXSchedulerTests.Run(Check);
         File.WriteAllLines(path, log);
         return log.Any(s => s.StartsWith("FAIL")) ? 1 : 0;
     }
