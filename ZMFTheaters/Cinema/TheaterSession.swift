@@ -22,6 +22,11 @@ final class TheaterSession: ObservableObject {
     @Published private(set) var slideLines: [String] = []
     @Published private(set) var slideVersion = 0
     @Published private(set) var countdown = 0
+    @Published private(set) var activeYouTubeTrailer: PreshowYouTubeTrailer?
+    @Published private(set) var youtubeIsPlaying = false
+    @Published private(set) var youtubeTime: Double = 0
+    @Published private(set) var youtubeError: String?
+    private var youtubeFinished = false
 
     let feature = PlaybackEngine()
     let trailers = PlaybackEngine()
@@ -42,7 +47,7 @@ final class TheaterSession: ObservableObject {
     /// The player whose frames belong on the screen right now.
     var screenEngine: PlaybackEngine? {
         switch phase {
-        case .trailer: return trailers
+        case .trailer: return activeYouTubeTrailer == nil ? trailers : nil
         case .feature, .credits: return feature
         default: return nil
         }
@@ -129,7 +134,28 @@ final class TheaterSession: ObservableObject {
         guard [.welcome, .trailer, .ident, .countdown].contains(phase) else { return }
         runTask?.cancel()
         trailers.stop()
+        dismissYouTubeTrailer()
         runTask = Task { [weak self] in await self?.run(skipPreshow: true) }
+    }
+
+    func updateYouTubePlayback(playing: Bool, seconds: Double) {
+        guard activeYouTubeTrailer != nil else { return }
+        youtubeIsPlaying = playing
+        youtubeTime = seconds.isFinite ? max(0, seconds) : 0
+    }
+
+    func completeYouTubeTrailer(error: String? = nil) {
+        guard activeYouTubeTrailer != nil else { return }
+        youtubeIsPlaying = false
+        youtubeError = error
+        youtubeFinished = true
+    }
+
+    private func dismissYouTubeTrailer() {
+        activeYouTubeTrailer = nil
+        youtubeIsPlaying = false
+        youtubeTime = 0
+        youtubeFinished = false
     }
 
     /// Recovery after a network drop or expired session: re-negotiates and resumes.
@@ -147,6 +173,7 @@ final class TheaterSession: ObservableObject {
         prepareTask?.cancel(); prepareTask = nil
         if feature.status != .idle { feature.stop() }
         if trailers.status != .idle { trailers.stop() }
+        dismissYouTubeTrailer()
         phase = .idle
         targetLights = 1
         ticket = nil
@@ -198,7 +225,35 @@ final class TheaterSession: ObservableObject {
                 setSlide(["WELCOME TO ZMF THEATERS+", room.name.uppercased(), "Now presenting: \(item.displayTitle)", "Seat \(ticket.seatLabel) · Room \(room.code)"])
                 try await sleep(Double(settings.welcomeSeconds))
 
-                for url in trailerFiles().shuffled().prefix(max(0, settings.maxTrailers)) {
+                // Link-based previews are played using YouTube's official
+                // embedded player. They remain on screen until end/skip/error.
+                // File trailers remain available as a fallback without a server.
+                let linked = settings.youtubeTrailers.filter {
+                    $0.presentation == .fourDX ? settings.fourDXTrailersEnabled : settings.standardTrailersEnabled
+                }
+                let chosen = Array(linked.prefix(max(0, settings.maxTrailers)))
+                for candidate in chosen {
+                    try Task.checkCancellation()
+                    phase = .trailer
+                    targetLights = 0.10
+                    activeYouTubeTrailer = candidate
+                    youtubeIsPlaying = false
+                    youtubeTime = 0
+                    youtubeError = nil
+                    youtubeFinished = false
+                    let deadline = Date().addingTimeInterval(360)
+                    // If embedding is disabled, user can press Next/Skip.
+                    while !youtubeFinished && Date() < deadline {
+                        try await sleep(0.2)
+                    }
+                    dismissYouTubeTrailer()
+                }
+
+                // Standard local .mp4/.mov trailers are optional; they follow
+                // the link queue if the combined preview limit has room.
+                let remaining = max(0, settings.maxTrailers - chosen.count)
+                let localTrailers = settings.standardTrailersEnabled ? trailerFiles().shuffled().prefix(remaining) : []
+                for url in localTrailers {
                     phase = .trailer
                     targetLights = 0.35
                     do {
