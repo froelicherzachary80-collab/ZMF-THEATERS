@@ -66,25 +66,21 @@ final class MeshBuilder {
 
     private func appendWorldQuad(_ pa: Vec3, _ pb: Vec3, _ pc: Vec3, _ pd: Vec3, _ n: Vec3, _ color: Vec4, _ mat: MaterialKey,
                                  _ uv: (Vec2, Vec2, Vec2, Vec2)) {
-        var list = batches[mat] ?? []
-        list.append(Vertex(pa, n, uv.0, color))
-        list.append(Vertex(pb, n, uv.1, color))
-        list.append(Vertex(pc, n, uv.2, color))
-        list.append(Vertex(pa, n, uv.0, color))
-        list.append(Vertex(pc, n, uv.2, color))
-        list.append(Vertex(pd, n, uv.3, color))
-        batches[mat] = list
+        // Append in place: copying the batch out and back in made every quad
+        // O(n) and building the world quadratic (a multi-second launch hang).
+        batches[mat, default: []].append(contentsOf: [
+            Vertex(pa, n, uv.0, color), Vertex(pb, n, uv.1, color), Vertex(pc, n, uv.2, color),
+            Vertex(pa, n, uv.0, color), Vertex(pc, n, uv.2, color), Vertex(pd, n, uv.3, color)
+        ])
     }
 
     /// Single triangle in local space (used for the projector beam volume).
     func triangle(_ a: Vec3, _ b: Vec3, _ c: Vec3, uvs: (Vec2, Vec2, Vec2), color: Vec4, mat: MaterialKey) {
         let pa = xf.point(a), pb = xf.point(b), pc = xf.point(c)
         let n = simd_normalize(simd_cross(pb - pa, pc - pa))
-        var list = batches[mat] ?? []
-        list.append(Vertex(pa, n, uvs.0, color))
-        list.append(Vertex(pb, n, uvs.1, color))
-        list.append(Vertex(pc, n, uvs.2, color))
-        batches[mat] = list
+        batches[mat, default: []].append(contentsOf: [
+            Vertex(pa, n, uvs.0, color), Vertex(pb, n, uvs.1, color), Vertex(pc, n, uvs.2, color)
+        ])
     }
 
     /// Axis-aligned box in local space with outward normals.
