@@ -345,6 +345,7 @@ public static class HomeSelfTest
         ctl.Apply(director, 7);
         await WaitFor(() => ctl.Devices["TAPO_02"].ReportedOn == true);
         Check(ctl.Devices["TAPO_02"].ReportedOn == true, "[power chain/mock] analysed playback switches Govee source ON");
+        clock = clock.AddSeconds(4); // simulated strip reboot window elapsed
         ctl.Apply(director, 7.1);
         await WaitFor(() => fakeLight.Packets.Count >= 2);
         Check(fakeLight.Packets.Count >= 2, "[power chain/mock] BLE colour and brightness follow confirmed source power");
