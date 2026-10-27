@@ -72,6 +72,18 @@ public sealed class KlapSession
         return (Klap.Concat(signature, cipher), Seq);
     }
 
+    /// Device side (mock plug in tests): adopt the client's sequence number.
+    public void UseSeq(int seq) => Seq = seq;
+
+    /// Device side: encrypt a response at the current sequence number.
+    public byte[] EncryptResponse(string message)
+    {
+        using var aes = Aes.Create();
+        aes.Key = key;
+        var cipher = aes.EncryptCbc(Encoding.UTF8.GetBytes(message), Iv(), PaddingMode.PKCS7);
+        return Klap.Concat(new byte[32], cipher);
+    }
+
     /// Decrypts a response to the most recent request (same sequence number).
     public string Decrypt(byte[] payload)
     {

@@ -146,7 +146,7 @@ public sealed class HomeController : IAsyncDisposable
         if (SimulationMode) return true;
         if (p.Ip.Length == 0) { st.State = DeviceState.Disconnected; st.Detail = "no IP address yet — run discovery"; Changed?.Invoke(); return false; }
         if (cfg.TapoUser.Length == 0) { st.State = DeviceState.Disconnected; st.Detail = "enter your Tapo account e-mail and password"; Changed?.Invoke(); return false; }
-        if (!plugs.ContainsKey(slot)) plugs[slot] = new TapoTransport(new TapoClient(p.Ip, cfg.TapoUser, cfg.TapoPassword));
+        if (!plugs.ContainsKey(slot)) plugs[slot] = new TapoTransport(new TapoClient(p.Ip, cfg.TapoUser, cfg.TapoPassword, p.HttpPort));
         return await RefreshAsync(slot, ct);
     }
 

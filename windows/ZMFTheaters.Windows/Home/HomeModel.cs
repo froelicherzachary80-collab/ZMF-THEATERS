@@ -37,6 +37,8 @@ public sealed class HomePlug
     public string Slot { get; set; } = "TAPO_01";
     public string Role { get; set; } = "MAIN_WIND";
     public string Ip { get; set; } = "";
+    /// KLAP HTTP port reported by discovery (80 on Tapo plugs).
+    public int HttpPort { get; set; } = 80;
     public string Mac { get; set; } = "";
     public string Model { get; set; } = "";
     public string Nickname { get; set; } = "";
