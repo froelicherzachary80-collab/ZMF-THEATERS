@@ -8,8 +8,6 @@ namespace ZMFTheaters.Cinema;
 /// 4DX seat never drifts from the picture.
 public sealed class ZMFCoasterTrack
 {
-    public static readonly ZMFCoasterTrack Shared = new();
-
     public readonly record struct Pose(Vector3 Position, Vector3 Forward, Vector3 Up, Vector3 Right, float Speed, float Bank,
         float Slope, float VerticalG, float LateralG, float LongitudinalG, float Distance, bool InSplash, bool OnLift);
 
@@ -31,6 +29,8 @@ public sealed class ZMFCoasterTrack
     public const float LiftStart = 0.11f, SplashFrom = 0.6f, SplashTo = 0.68f;
     public static readonly Vector3 LogoPosition = new(-28, 17, 168);
     public static readonly Vector3 PoolCenter = new(39, 0.05f, 65);
+    // Declared after the layout statics above: static fields initialise in order.
+    public static readonly ZMFCoasterTrack Shared = new();
 
     readonly List<Vector3> points = new();
     readonly List<float> cumulative = new();
