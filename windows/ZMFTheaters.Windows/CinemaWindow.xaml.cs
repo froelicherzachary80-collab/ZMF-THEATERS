@@ -47,6 +47,8 @@ sealed class DynamicTexture
     }
     public void Set(ImageSource src) =>
         emissive.Brush = new ImageBrush(src) { ViewportUnits = BrushMappingMode.Absolute, Viewport = new Rect(0, 0, 1, 1), Stretch = Stretch.Fill };
+    /// Live content (the roller-coaster scene) shown through a brush.
+    public void SetBrush(Brush brush) => emissive.Brush = brush;
 }
 
 /// The walkable 3D ZMF cinema for Windows: lobby, box office, concessions,
@@ -103,6 +105,20 @@ public partial class CinemaWindow : Window
     // films load an empty track and only the conservative motion fallback runs.
     readonly Auto4DXScheduler timeline = new();
     BHapticsClient? tactsuit;
+    // ZMF roller-coaster intro, YouTube presentations and the 4DX screen layer.
+    CoasterView? coaster;
+    double coasterTime;
+    bool coasterRunning;
+    readonly HashSet<int> spokenLines = new();
+    System.Speech.Synthesis.SpeechSynthesizer? voice;
+    YouTubePresenter? presenter;
+    Format presentationFormat = Format.TwoD;
+    double lastFxSend;
+    readonly ScreenFx screenFx = new();
+    (double x, double y, double pitch, double yaw)? rideSeat;
+    double fxWater, fxWind, fxFlash;
+    bool reclined;
+    double reclineBlend;
     JellyfinClient? api;
     string mediaSourceId = "";
     string? playSessionId;
@@ -270,6 +286,7 @@ public partial class CinemaWindow : Window
     async void OnLoaded(object sender, RoutedEventArgs e)
     {
         VolumeBar.Value = config.Volume;
+        FxHost.Content = screenFx.Layer;
         CompositionTarget.Rendering += OnFrame;
         BuildSeatGrid();
         if (shotName != null) { await RunShotAsync(); return; }
@@ -292,6 +309,7 @@ public partial class CinemaWindow : Window
         config.Save();
         _ = tactsuit?.DisposeAsync();
         stereo?.Dispose();
+        try { voice?.Dispose(); } catch { }
     }
 
     // MARK: Frame loop
@@ -307,6 +325,7 @@ public partial class CinemaWindow : Window
         UpdateDoors(dt);
         UpdateVisibleRooms();
         UpdateVideo(dt);
+        UpdateRideAndPresentation(dt);
         house += (houseTarget - house) * Math.Min(1, dt * 0.45);
 
         // Lighting: house lights, 4DX strobe, screen spill.
@@ -317,20 +336,23 @@ public partial class CinemaWindow : Window
         ambient.Color = Mats.C(amb + strobe * .8, amb * .93 + strobe * .78, amb * .95 + strobe * .75);
         Smoke.Opacity = Math.Min(0.35, fourDX.Smoke * 0.3);
 
-        // Camera (with 4DX motion seat when seated).
-        var seatMotion = fourDX.Seat;
+        // Camera (with 4DX motion seat when seated). The ride/presentation
+        // motion overrides the picture-motion fallback while it runs.
+        var seatMotion = rideSeat ?? fourDX.Seat;
+        reclineBlend += ((seated != null && reclined ? 1 : 0) - reclineBlend) * Math.Min(1, dt * 1.8);
         double ey = py + (seated != null ? 1.12 : World.EyeHeight);
         double cx = px, cz = pz;
         if (seated is { } s)
         {
+            // Recline tilts your head back and lowers it; the eye stays in
+            // front of the backrest (x + 0.30) so the view never clips into it.
             var sp = World.SeatPosition(s.room, s.row, s.seat);
-            var back = -World.ScreenYaw(s.room);
-            cx = sp.X - Math.Sin(World.ScreenYaw(s.room)) * 0.18 + seatMotion.x;
-            cz = sp.Z - Math.Cos(World.ScreenYaw(s.room)) * 0.18;
-            ey = sp.Y + 1.12 + seatMotion.y + Math.Sin(time * 1.35) * 0.006;
-            _ = back;
+            var back = 0.18 + 0.02 * reclineBlend;
+            cx = sp.X - Math.Sin(World.ScreenYaw(s.room)) * back + seatMotion.x;
+            cz = sp.Z - Math.Cos(World.ScreenYaw(s.room)) * back;
+            ey = sp.Y + 1.12 - 0.1 * reclineBlend + seatMotion.y + Math.Sin(time * 1.35) * 0.006;
         }
-        double cyaw = yaw + seatMotion.yaw * Math.PI / 180, cpitch = pitch + seatMotion.pitch * Math.PI / 180;
+        double cyaw = yaw + seatMotion.yaw * Math.PI / 180, cpitch = pitch + seatMotion.pitch * Math.PI / 180 + 0.16 * reclineBlend;
         Cam.Position = new Point3D(cx, ey, cz);
         Cam.LookDirection = new Vector3D(Math.Sin(cyaw) * Math.Cos(cpitch), Math.Sin(cpitch), Math.Cos(cyaw) * Math.Cos(cpitch));
         Cam.FieldOfView = seated != null ? 62 : 75;
@@ -484,6 +506,7 @@ public partial class CinemaWindow : Window
         {
             case Key.E: _ = Interact(); break;
             case Key.Q: if (seated != null) Stand(); break;
+            case Key.R: ToggleRecline(); break;
             case Key.F: ToggleFullscreen(); break;
             case Key.Space: if (seated != null) TogglePlay(); break;
             case Key.Enter: preshowCts?.Cancel(); break;
@@ -499,7 +522,8 @@ public partial class CinemaWindow : Window
     {
         if (BoxOffice.Visibility == Visibility.Visible || e.OriginalSource is not (Window or Grid or Viewport3D or Image or System.Windows.Shapes.Rectangle)) return;
         lastMouse = e.GetPosition(this);
-        preshowCts?.Cancel();
+        // Looking around never skips the ride or a presentation (Enter does).
+        if (!coasterRunning && presenter?.Active != true) preshowCts?.Cancel();
         CaptureMouse();
     }
 
@@ -671,8 +695,18 @@ public partial class CinemaWindow : Window
         pz = sp.Z;
         py = sp.Y;
         seated = null;
+        reclined = false;
         shownRooms.Clear();
     }
+
+    void ToggleRecline()
+    {
+        if (seated == null) return;
+        reclined = !reclined;
+        ReclineButton.Content = reclined ? "Sit up" : "Recline";
+    }
+
+    void OnRecline(object sender, RoutedEventArgs e) => ToggleRecline();
 
     void OnStand(object sender, RoutedEventArgs e) => Stand();
 
@@ -690,18 +724,127 @@ public partial class CinemaWindow : Window
             houseTarget = 0.7;
             Slide(ticket.Room, "WELCOME TO ZMF THEATERS+", r.Name.ToUpperInvariant(), $"Now presenting: {ticket.Film.Title} · Seat {ticket.SeatLabel}");
             await Task.Delay(6000, ct);
+            await PlayPresentationsAsync(ct);
             houseTarget = 0.35;
             Slide(ticket.Room, "A FRIENDLY REMINDER", "Please silence your phone", ticket.Format.UsesDepth() ? "Put on your red/cyan glasses" : "Sit back, relax and enjoy the show");
             await Task.Delay(4000, ct);
+            if (config.CoasterIntro) await RunCoasterAsync(ct);
             houseTarget = 0.1;
-            for (int n = 10; n >= 1; n--)
+            for (int n = config.CoasterIntro ? 3 : 10; n >= 1; n--)
             {
                 Slide(ticket.Room, "FEATURE PRESENTATION", n.ToString(), ticket.Film.Title);
                 await Task.Delay(1000, ct);
             }
         }
         catch (TaskCanceledException) { }
+        coasterRunning = false;
+        rideSeat = null;
+        try { voice?.SpeakAsyncCancelAll(); } catch { }
         preshowCts = null;
+    }
+
+    /// Owner-added YouTube presentations, each in its own 2D/3D/4DX/4DX 3D format.
+    async Task PlayPresentationsAsync(CancellationToken ct)
+    {
+        if (ticket == null || config.Presentations.Count == 0) return;
+        presenter ??= new YouTubePresenter();
+        PresenterHost.Content = presenter.Panel;
+        var skipAll = false;
+        void OnSkip() => skipAll = true;
+        presenter.SkipAllRequested += OnSkip;
+        try
+        {
+            foreach (var p in config.Presentations.ToList())
+            {
+                if (skipAll || ct.IsCancellationRequested) break;
+                presentationFormat = Enum.TryParse<Format>(p.Format, out var f) ? f : Format.TwoD;
+                houseTarget = 0.12;
+                Slide(ticket.Room, "ZMF PRESENTS", p.Title, presentationFormat switch { Format.FourDX => "4DX presentation", Format.FourDX3D => "4DX 3D presentation", Format.ThreeD => "3D presentation · glasses on", _ => "Presentation" });
+                await presenter.PlayAsync(p.VideoId, p.Title, presentationFormat.UsesDepth(), presentationFormat.Uses4DX(), ct);
+            }
+        }
+        finally
+        {
+            presenter.SkipAllRequested -= OnSkip;
+            rideSeat = null;
+            presentationFormat = Format.TwoD;
+        }
+    }
+
+    /// The original ZMF THEATERS roller-coaster ride on the auditorium screen.
+    async Task RunCoasterAsync(CancellationToken ct)
+    {
+        if (ticket == null) return;
+        if (coaster == null)
+        {
+            coaster = new CoasterView();
+            Canvas.SetLeft(coaster.Host, -20000);
+            Offscreen.Children.Add(coaster.Host);
+        }
+        screens[ticket.Room].SetBrush(new VisualBrush(coaster.Host) { Stretch = Stretch.Fill });
+        houseTarget = 0.06;
+        coasterTime = 0;
+        spokenLines.Clear();
+        coasterRunning = true;
+        try { await Task.Delay(TimeSpan.FromSeconds(ZMFCoasterTrack.Shared.Duration), ct); }
+        finally { coasterRunning = false; rideSeat = null; }
+    }
+
+    void Speak(string line)
+    {
+        if (!config.CoasterVoice) return;
+        try
+        {
+            voice ??= new System.Speech.Synthesis.SpeechSynthesizer { Rate = -1, Volume = 90 };
+            voice.SpeakAsync(line);
+        }
+        catch { config.CoasterVoice = false; }   // no speech engine available
+    }
+
+    /// Advances the coaster, drives 4DX for rides/presentations and the screen layer.
+    void UpdateRideAndPresentation(double dt)
+    {
+        double water = 0, wind = 0, flash = 0;
+        rideSeat = null;
+        bool fourDXTicket = ticket?.Format.Uses4DX() == true;
+        if (coasterRunning && coaster != null)
+        {
+            coasterTime += dt;
+            coaster.Update(coasterTime);
+            var script = ZMFCoasterTrack.Shared.Script;
+            for (int i = 0; i < script.Length; i++)
+                if (coasterTime >= script[i].at && spokenLines.Add(i)) Speak(script[i].line);
+            if (fourDXTicket)
+            {
+                var c = ZMFCoasterTrack.Shared.CueAt(coasterTime);
+                rideSeat = (c.Side, c.Lift, c.Pitch * 180 / Math.PI * 0.6, c.Roll * 180 / Math.PI * 0.6);
+                water = c.Water; wind = c.Wind; flash = c.Flash;
+                _ = tactsuit?.SendAsync(c.Rumble, 0);
+            }
+        }
+        else if (presenter?.Active == true && presentationFormat.Uses4DX())
+        {
+            if (presenter.Playing)
+            {
+                var m = FourDXEngine.PresentationMotion(presenter.Time);
+                rideSeat = (m.x, m.y, m.pitch, m.yaw);
+                wind = m.wind; water = m.water;
+            }
+            if (time - lastFxSend > 0.05)
+            {
+                lastFxSend = time;
+                var s = rideSeat ?? default;
+                presenter.SendFx(water, wind, 0, -s.x * 2, s.y * 2, -s.yaw / 57.3 * 0.3);
+            }
+        }
+        else if (fourDXTicket && player?.IsPlaying == true)
+        {
+            wind = Math.Min(1, fourDX.Rumble * 4);   // wind follows measured picture motion
+        }
+        if (!config.ScreenEffects || seated == null) water = wind = flash = 0;
+        if (!config.ScreenFlashes) flash = 0;
+        fxWater = water; fxWind = wind; fxFlash = flash;
+        screenFx.Update(dt, time, water, wind, flash, Root.ActualWidth, Root.ActualHeight);
     }
 
     async Task StartPlaybackAsync()
@@ -965,15 +1108,38 @@ public partial class CinemaWindow : Window
                 var seatPos = World.SeatPosition(9, 4, 3); px = seatPos.X; pz = seatPos.Z;
                 Slide(9, "WELCOME TO ZMF THEATERS+", "SCI-FI GALAXY", "Now presenting: Preshow Demo · Seat E4");
                 break;
+            case "recline":
+                ticket = new CinemaTicket(new MediaEntry { Server = new ServerConfig(), Id = "demo", Title = "Preshow Demo" }, 9, 4, 3, Format.TwoD, 0);
+                seated = (9, 4, 3); yaw = World.ScreenYaw(9); houseTarget = house = 0.35; reclined = true;
+                var rp = World.SeatPosition(9, 4, 3); px = rp.X; pz = rp.Z;
+                Slide(9, "RECLINED", "SCI-FI GALAXY", "Seat E4 · press R to sit up");
+                break;
+            case "coaster" or "coasterride" or "coastersplash":
+                // 4DX ticket in Room 09 with the ZMF roller coaster on screen.
+                config.CoasterVoice = false;
+                ticket = new CinemaTicket(new MediaEntry { Server = new ServerConfig(), Id = "demo", Title = "Coaster Demo" }, 9, 4, 3, Format.FourDX, 0);
+                seated = (9, 4, 3); yaw = World.ScreenYaw(9); houseTarget = house = 0.06;
+                var cp = World.SeatPosition(9, 4, 3); px = cp.X; pz = cp.Z;
+                coaster = new CoasterView();
+                Canvas.SetLeft(coaster.Host, -20000);
+                Offscreen.Children.Add(coaster.Host);
+                screens[9].SetBrush(new VisualBrush(coaster.Host) { Stretch = Stretch.Fill });
+                coasterTime = shotName == "coasterride" ? 30 : 19;
+                if (shotName == "coastersplash")
+                    for (double t = 20; t < ZMFCoasterTrack.Shared.RideDuration; t += 0.25)
+                        if (ZMFCoasterTrack.Shared.PoseAt(t).InSplash) { coasterTime = t - 1.5; break; }
+                coasterRunning = true;
+                break;
         }
         py = World.GroundHeight(px, pz);
         shownRooms.Clear();
         await Task.Delay(2500);
         try
         {
-            var w = (int)Math.Max(1, Root.ActualWidth); var h = (int)Math.Max(1, Root.ActualHeight);
+            FrameworkElement target = shotName == "coasterride" && coaster != null ? coaster.Host : Root;
+            var w = (int)Math.Max(1, target.ActualWidth); var h = (int)Math.Max(1, target.ActualHeight);
             var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
-            rtb.Render(Root);
+            rtb.Render(target);
             var enc = new PngBitmapEncoder();
             enc.Frames.Add(BitmapFrame.Create(rtb));
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(shotPath!))!);

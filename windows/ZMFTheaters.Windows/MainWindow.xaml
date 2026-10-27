@@ -46,6 +46,7 @@
                 <Button Style="{StaticResource NavButton}" Content="🎞  Movies" Click="OnNav" Tag="Movies"/>
                 <Button Style="{StaticResource NavButton}" Content="📺  TV Shows" Click="OnNav" Tag="Shows"/>
                 <Button Style="{StaticResource NavButton}" Content="👥  Watch Parties" Click="OnNav" Tag="Parties"/>
+                <Button Style="{StaticResource NavButton}" Content="🎞  Presentations" Click="OnNav" Tag="Presentations"/>
                 <Button Style="{StaticResource NavButton}" Content="🖥  Servers" Click="OnNav" Tag="Servers"/>
                 <Border BorderBrush="#4DD0E1" BorderThickness="1" CornerRadius="10" Padding="10" Margin="8,20,8,0">
                     <StackPanel>
@@ -157,6 +158,46 @@
                     <PasswordBox x:Name="PassBox"/>
                     <Button x:Name="ConnectButton" Content="Test &amp; Connect" Style="{StaticResource GoldButton}" Click="OnConnect" Margin="0,12,0,0"/>
                     <TextBlock x:Name="ConnectStatus" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- YouTube presentations & preshow -->
+        <Grid x:Name="PresentationsPanel" Grid.Column="1" Margin="22,18,18,0" Visibility="Collapsed">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="360"/></Grid.ColumnDefinitions>
+            <StackPanel>
+                <TextBlock Text="PRESENTATIONS" FontSize="26" FontWeight="Black" Foreground="{StaticResource GoldBrush}"/>
+                <TextBlock Foreground="{StaticResource DimTextBrush}" Margin="0,2,0,10" TextWrapping="Wrap"
+                           Text="YouTube presentations play before the feature in YouTube's official embedded player (nothing is downloaded). Then the ZMF roller coaster takes you into the movie."/>
+                <ListBox x:Name="PresentationList" Background="{StaticResource PanelBrush}" Foreground="{StaticResource TextBrush}" BorderThickness="0" MinHeight="220"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6">
+                    <Button Content="Move up" Click="OnPresentationUp"/>
+                    <Button Content="Remove selected" Click="OnRemovePresentation"/>
+                </StackPanel>
+                <TextBlock Text="PRESHOW" FontWeight="Black" Foreground="{StaticResource GoldBrush}" Margin="0,14,0,4"/>
+                <CheckBox x:Name="CoasterBox" Content="ZMF roller-coaster intro before the movie" Foreground="White" Click="OnPreshowOption"/>
+                <CheckBox x:Name="VoiceBox" Content="Announcer voice (&quot;Welcome to ZMF Theaters…&quot;)" Foreground="White" Click="OnPreshowOption"/>
+                <CheckBox x:Name="FxBox" Content="4DX water spray, mist and wind on screen" Foreground="White" Click="OnPreshowOption"/>
+                <CheckBox x:Name="FlashBox" Content="4DX light flashes (off by default — photosensitivity)" Foreground="White" Click="OnPreshowOption"/>
+            </StackPanel>
+            <Border Grid.Column="1" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16" Margin="16,48,0,0" VerticalAlignment="Top">
+                <StackPanel>
+                    <TextBlock Text="Add YouTube presentation" FontSize="17" FontWeight="Bold" Margin="0,0,0,8"/>
+                    <TextBlock Text="YouTube link (watch, youtu.be, Shorts)" Foreground="{StaticResource DimTextBrush}"/>
+                    <TextBox x:Name="YtUrlBox"/>
+                    <TextBlock Text="Title" Foreground="{StaticResource DimTextBrush}"/>
+                    <TextBox x:Name="YtTitleBox"/>
+                    <TextBlock Text="Format" Foreground="{StaticResource DimTextBrush}"/>
+                    <ComboBox x:Name="YtFormatBox" SelectedIndex="0">
+                        <ComboBoxItem Content="2D" Tag="TwoD"/>
+                        <ComboBoxItem Content="3D (red/cyan)" Tag="ThreeD"/>
+                        <ComboBoxItem Content="4DX" Tag="FourDX"/>
+                        <ComboBoxItem Content="4DX + 3D" Tag="FourDX3D"/>
+                    </ComboBox>
+                    <Button Content="Add presentation" Style="{StaticResource GoldButton}" Click="OnAddPresentation" Margin="0,12,0,0"/>
+                    <TextBlock x:Name="YtStatus" TextWrapping="Wrap" Margin="0,8,0,0" Foreground="#FFB74D"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,8,0,0" FontSize="11" Foreground="{StaticResource DimTextBrush}"
+                               Text="3D uses a red/cyan stereo window (YouTube doesn't let apps read its pixels, so this isn't the AI depth conversion used for your films). 4DX moves your virtual seat with the player clock and adds wind and water mist on screen."/>
                 </StackPanel>
             </Border>
         </Grid>

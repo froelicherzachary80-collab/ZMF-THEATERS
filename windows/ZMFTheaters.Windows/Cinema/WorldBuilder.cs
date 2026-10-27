@@ -110,6 +110,15 @@ public sealed class MeshBuilder3D
         Quad(new(x0, y1, z1), new(x1, y1, z1), new(x1, y1, z0), new(x0, y1, z0), new(0, 1, 0), m);
     }
 
+    /// Upholstered look: three overlapping boxes, each inset on one axis.
+    public void Cushion(double x0, double y0, double z0, double x1, double y1, double z1, double r, Material m)
+    {
+        r = Math.Min(r, Math.Min((x1 - x0) * 0.45, Math.Min((y1 - y0) * 0.45, (z1 - z0) * 0.45)));
+        Box(x0 + r, y0, z0 + r, x1 - r, y1, z1 - r, m);
+        Box(x0, y0 + r, z0 + r, x1, y1 - r, z1 - r, m);
+        Box(x0 + r, y0 + r, z0, x1 - r, y1 - r, z1, m);
+    }
+
     public void BoxC(double cx, double cy, double cz, double sx, double sy, double sz, Material m) =>
         Box(cx - sx / 2, cy - sy / 2, cz - sz / 2, cx + sx / 2, cy + sy / 2, cz + sz / 2, m);
 
@@ -301,14 +310,35 @@ public static class WorldBuilder
             double x = World.RowX(r), fl = World.RowFloor(r);
             bool vip = r is 4 or 5;
             var seat = Mats.Lit(Mats.Scale(t.Seat, vip ? 1.6 : 1.25));
+            var shade = Mats.Lit(Mats.Scale(t.Seat, vip ? 1.3 : 1.0));
+            var pad = Mats.Lit(Mats.C(.1, .09, .09));
+            var chrome = Mats.Lit(Mats.C(.7, .72, .76));
+            var jet = Mats.Glow(Mats.C(.55, .85, 1));
+            var platform = Mats.Lit(Mats.C(.13, .17, .2));
             for (int s = 0; s < 8; s++)
             {
+                // Premium 4DX recliner; local +x points away from the screen.
+                // The backrest front stays at x + 0.30 so the seated eye
+                // (x + 0.18…0.20) is never inside the upholstery.
                 double z = World.SeatZ(s);
-                b.Box(x - .4, fl, z - .42, x + .35, fl + .3, z + .42, frame);
-                b.Box(x - .42, fl + .3, z - .42, x + .35, fl + .52, z + .42, seat);
-                b.Box(x + .3, fl + .4, z - .42, x + .52, fl + 1.2, z + .42, seat);
-                b.Box(x - .35, fl + .3, z - .52, x + .45, fl + .75, z - .42, frame);
-                b.BoxC(x - .22, fl + .757, z - .47, .1, .012, .1, Mats.Glow(t.Accent));
+                b.Box(x - .4, fl, z - .4, x + .35, fl + .3, z + .4, frame);
+                b.Box(x - .32, fl + .06, z - .3, x + .22, fl + .14, z + .3, platform);
+                b.Cushion(x - .36, fl + .3, z - .36, x + .32, fl + .5, z + .36, .06, seat);
+                b.Cushion(x - .44, fl + .26, z - .35, x - .3, fl + .48, z + .35, .06, shade);
+                b.Cushion(x - .47, fl + .06, z - .33, x - .41, fl + .3, z + .33, .025, shade);
+                b.Cushion(x + .3, fl + .42, z - .4, x + .56, fl + 1.16, z + .4, .07, seat);
+                b.Cushion(x + .26, fl + .5, z - .3, x + .36, fl + .68, z + .3, .05, shade);
+                for (int k = 0; k < 2; k++) b.Cushion(x + .29, fl + .7 + k * .22, z - .29, x + .34, fl + .9 + k * .22, z + .29, .03, seat);
+                foreach (var side in new[] { -1.0, 1.0 })
+                    b.Cushion(x + .24, fl + .6, z + side * .42 - .06, x + .52, fl + 1.1, z + side * .42 + .06, .04, shade);
+                b.Cushion(x + .3, fl + 1.02, z - .26, x + .5, fl + 1.26, z + .26, .06, shade);
+                b.Box(x + .56, fl + .36, z - .42, x + .6, fl + 1.2, z + .42, frame);
+                b.BoxC(x + .605, fl + .94, z - .12, .012, .035, .035, jet);
+                b.BoxC(x + .605, fl + .94, z + .12, .012, .035, .035, jet);
+                b.Box(x - .35, fl + .3, z - .52, x + .45, fl + .7, z - .42, frame);
+                b.Cushion(x - .38, fl + .7, z - .535, x + .46, fl + .78, z - .405, .03, pad);
+                b.Box(x - .4, fl + .66, z - .54, x + .47, fl + .675, z - .4, chrome);
+                b.BoxC(x - .22, fl + .785, z - .47, .1, .012, .1, Mats.Glow(t.Accent));
             }
         }
         return b.Build();

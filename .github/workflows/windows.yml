@@ -79,14 +79,14 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force shots | Out-Null
-          foreach ($shot in "lobby","hall","room","seat") {
+          foreach ($shot in "lobby","hall","room","seat","recline","coaster","coasterride","coastersplash") {
             $p = Start-Process -FilePath "out/ZMFTheaters-Windows/ZMFTheaters.exe" -ArgumentList "--shot",$shot,"$PWD/shots/$shot.png" -PassThru
             if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; Write-Warning "$shot timed out" }
           }
           Get-ChildItem shots
 
       - name: Publish screenshots to the ci-screenshots-windows branch
-        if: github.event_name == 'push' && github.ref == 'refs/heads/claude/zmf-theaters-v0.1'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/claude/zmf-theaters-v0.1' || github.ref == 'refs/heads/feature/ios-v0.4.2-youtube-cinema-browser')
         shell: bash
         run: |
           cd shots

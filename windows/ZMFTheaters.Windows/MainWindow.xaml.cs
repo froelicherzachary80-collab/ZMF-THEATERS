@@ -62,6 +62,8 @@ public partial class MainWindow : Window
         LibraryPanel.Visibility = panel is "Movies" or "Shows" ? Visibility.Visible : Visibility.Collapsed;
         PartyPanel.Visibility = panel == "Parties" ? Visibility.Visible : Visibility.Collapsed;
         ServersPanel.Visibility = panel == "Servers" ? Visibility.Visible : Visibility.Collapsed;
+        PresentationsPanel.Visibility = panel == "Presentations" ? Visibility.Visible : Visibility.Collapsed;
+        if (panel == "Presentations") RefreshPresentations();
         DetailOverlay.Visibility = Visibility.Collapsed;
         if (panel is "Movies" or "Shows")
         {
@@ -173,6 +175,63 @@ public partial class MainWindow : Window
         w.Closed += (_, _) => { if (cinema == w) cinema = null; };
         cinema = w;
         w.Show();
+    }
+
+    // MARK: Presentations
+
+    void RefreshPresentations()
+    {
+        PresentationList.ItemsSource = null;
+        PresentationList.ItemsSource = config.Presentations;
+        CoasterBox.IsChecked = config.CoasterIntro;
+        VoiceBox.IsChecked = config.CoasterVoice;
+        FxBox.IsChecked = config.ScreenEffects;
+        FlashBox.IsChecked = config.ScreenFlashes;
+    }
+
+    void OnAddPresentation(object sender, RoutedEventArgs e)
+    {
+        var id = YouTubePresenter.VideoId(YtUrlBox.Text);
+        if (id == null) { YtStatus.Text = "Paste a public YouTube https link (youtube.com/watch?v=…, youtu.be/…, or Shorts)."; return; }
+        if (config.Presentations.Any(p => p.VideoId == id)) { YtStatus.Text = "That video is already in your presentations."; return; }
+        var title = YtTitleBox.Text.Trim();
+        config.Presentations.Add(new YouTubePresentation
+        {
+            VideoId = id, Title = title.Length == 0 ? "YouTube Presentation" : title[..Math.Min(100, title.Length)],
+            Format = (YtFormatBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "TwoD",
+        });
+        config.Save();
+        YtUrlBox.Text = ""; YtTitleBox.Text = ""; YtStatus.Text = "Added. It plays before your next screening.";
+        RefreshPresentations();
+    }
+
+    void OnRemovePresentation(object sender, RoutedEventArgs e)
+    {
+        if (PresentationList.SelectedItem is not YouTubePresentation p) return;
+        config.Presentations.Remove(p);
+        config.Save();
+        RefreshPresentations();
+    }
+
+    void OnPresentationUp(object sender, RoutedEventArgs e)
+    {
+        if (PresentationList.SelectedItem is not YouTubePresentation p) return;
+        var i = config.Presentations.IndexOf(p);
+        if (i <= 0) return;
+        config.Presentations.RemoveAt(i);
+        config.Presentations.Insert(i - 1, p);
+        config.Save();
+        RefreshPresentations();
+        PresentationList.SelectedItem = p;
+    }
+
+    void OnPreshowOption(object sender, RoutedEventArgs e)
+    {
+        config.CoasterIntro = CoasterBox.IsChecked == true;
+        config.CoasterVoice = VoiceBox.IsChecked == true;
+        config.ScreenEffects = FxBox.IsChecked == true;
+        config.ScreenFlashes = FlashBox.IsChecked == true;
+        config.Save();
     }
 
     void On4DXToggle(object sender, RoutedEventArgs e)

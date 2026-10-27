@@ -85,6 +85,19 @@ public sealed class FourDXEngine
                 Math.Sin(t * 7.3) * 0.7 * sway, Math.Sin(t * 5.1 + 1.3) * 0.9 * sway);
     }
 
+    /// Clock-synchronised virtual motion for YouTube presentations (the player
+    /// exposes only time and play state, never pixels): a gentle scripted
+    /// sway with wind, plus a water-mist passage every ~56 s. Seat tuple uses
+    /// the same units as <see cref="Seat"/> (metres, degrees).
+    public static (double x, double y, double pitch, double yaw, double wind, double water) PresentationMotion(double t)
+    {
+        if (!double.IsFinite(t) || t < 0) t = 0;
+        var mistScene = (int)(t / 14) % 4 == 0;
+        var pulse = 0.5 + 0.5 * Math.Sin(t * 1.5);
+        return (0.03 * Math.Sin(t * 0.6), 0.025 * Math.Sin(t * 1.25), 2.6 * Math.Sin(t * 0.6), 3.7 * Math.Sin(t * 0.45),
+                0.25 + 0.5 * Math.Abs(Math.Sin(t * 0.6)), mistScene ? 0.35 + 0.3 * pulse : 0);
+    }
+
     public void Reset() { Rumble = Strobe = Smoke = Impact = 0; Seat = default; primed = false; lastTimestamp = double.NaN; cutHold = 0.35; t = 0; Array.Clear(prev); }
 }
 

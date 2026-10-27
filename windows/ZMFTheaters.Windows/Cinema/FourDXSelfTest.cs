@@ -34,6 +34,22 @@ public static class FourDXSelfTest
         Check(!Format.TwoD.Uses4DX() && !Format.TwoD.UsesDepth(), "2D enables neither pipeline");
         Check(FourDXPreview.Active(false), "4DX has no date expiration");
         Auto4DXSchedulerTests.Run(Check);
+        // ZMF roller-coaster intro: deterministic, finite, bounded seat cues.
+        var ride = ZMFCoasterTrack.Shared;
+        Check(ride.RideDuration > 30 && ride.RideDuration < 90, $"[coaster] ride lasts {ride.RideDuration:0.0}s");
+        bool finite = true, bounded = true, splash = false, lift = false; float vmax = 0;
+        for (double t = 0; t <= ride.RideDuration; t += 0.05)
+        {
+            var p = ride.PoseAt(t); var c = ride.CueAt(t);
+            finite &= float.IsFinite(p.Position.X + p.Position.Y + p.Position.Z + p.Speed + c.Pitch + c.Roll + c.Side + c.Lift);
+            bounded &= Math.Abs(c.Pitch) <= 0.4 && Math.Abs(c.Roll) <= 0.4 && Math.Abs(c.Side) <= 0.1 && Math.Abs(c.Lift) <= 0.1 && c.Wind <= 1 && c.Rumble <= 0.4;
+            splash |= p.InSplash; lift |= p.OnLift; vmax = Math.Max(vmax, p.Speed);
+        }
+        Check(finite, "[coaster] poses and seat cues are finite");
+        Check(bounded, "[coaster] seat cues stay within comfort limits");
+        Check(splash && lift, "[coaster] ride passes the lift hill and splash tunnel");
+        Check(vmax > 15 && vmax < 30, $"[coaster] top speed {vmax:0.0} m/s");
+        Check(ride.PoseAt(12.3).Position == ride.PoseAt(12.3).Position, "[coaster] pose is deterministic for a given ride time");
         File.WriteAllLines(path, log);
         return log.Any(s => s.StartsWith("FAIL")) ? 1 : 0;
     }
