@@ -84,6 +84,9 @@ public sealed class HomeController : IAsyncDisposable
     readonly ConcurrentDictionary<string, PowerGate> gates = new();
     readonly ConcurrentDictionary<string, SemaphoreSlim> locks = new();
     readonly ConcurrentDictionary<string, bool> inflight = new();
+    // Every pause/stop/estop invalidates already-in-flight automatic ON
+    // requests, even when the plug had not acknowledged ON yet.
+    readonly ConcurrentDictionary<string, int> cancelledGeneration = new();
     ILightTransport? light;
     readonly ConcurrentQueue<TelemetryEntry> telemetry = new();
     public Dictionary<string, DeviceStatus> Devices { get; } = new();
@@ -205,6 +208,7 @@ public sealed class HomeController : IAsyncDisposable
     {
         var p = Plug(slot);
         var st = Devices[slot];
+        var requestGeneration = cancelledGeneration.GetOrAdd(slot, 0);
         if (p.Essential) { Log(slot, on ? "ON" : "OFF", "refused: marked essential equipment", -1); return false; }
         if (!p.Authorized && !SimulationMode) { Log(slot, on ? "ON" : "OFF", "refused: plug not authorized", -1); return false; }
         if (on && EmergencyStopped) { Log(slot, "ON", "refused: emergency stop active", -1); return false; }
@@ -221,9 +225,12 @@ public sealed class HomeController : IAsyncDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(CommandTimeout);
         var sw = Stopwatch.StartNew();
+        bool undoStaleOn = false;
         st.LastCommand = $"{(on ? "ON" : "OFF")} · {reason}";
         try
         {
+            // An ON queued before emergency stop must not execute afterwards.
+            if (on && EmergencyStopped) return false;
             await t.SetOnAsync(on, timeout.Token);
             // Acknowledgement = the plug's own reported state afterwards.
             var info = await t.GetInfoAsync(timeout.Token);
@@ -234,6 +241,8 @@ public sealed class HomeController : IAsyncDisposable
             if (ok)
             {
                 Gate(slot).Commit(on, Clock());
+                undoStaleOn = on && !manual &&
+                    requestGeneration != cancelledGeneration.GetOrAdd(slot, 0);
                 if (p.IsLightPower)
                 {
                     // After a mains interruption the strip must reboot and BLE
@@ -253,7 +262,17 @@ public sealed class HomeController : IAsyncDisposable
             _ = Task.Run(() => ReconnectAsync(slot, CancellationToken.None));
             return false;
         }
-        finally { lk.Release(); inflight.TryRemove(slot, out _); Changed?.Invoke(); }
+        finally
+        {
+            lk.Release();
+            inflight.TryRemove(slot, out _);
+            Changed?.Invoke();
+            // Compensating OFF after any late acknowledgement of an
+            // automatic ON that the player already cancelled.
+            if (undoStaleOn)
+                _ = Task.Run(() => SendPlugAsync(slot, false, "cancelled stale ON after pause/stop",
+                    CancellationToken.None, true, true, double.NaN, 0, ""));
+        }
     }
 
     // MARK: Lighting
@@ -402,6 +421,9 @@ public sealed class HomeController : IAsyncDisposable
     /// Pause/stop: turn the automated fan off right away (bypasses min on-time).
     public Task SuspendAsync(string reason)
     {
+        // Invalidate automatic ON commands even if they are still in flight.
+        foreach (var p in cfg.Plugs.Where(p => p.IsWind || p.IsLightPower))
+            cancelledGeneration.AddOrUpdate(p.Slot, 1, (_, prior) => unchecked(prior + 1));
         // Pause/stop/connection loss must remove both fan and lighting power.
         var active = cfg.Plugs.Where(p => (p.IsWind || p.IsLightPower) &&
             Gate(p.Slot).IsOn && (p.Authorized || SimulationMode))
@@ -415,6 +437,8 @@ public sealed class HomeController : IAsyncDisposable
     public async Task StopAllEffectsAsync(string source)
     {
         EmergencyStopped = true;
+        foreach (var p in cfg.Plugs)
+            cancelledGeneration.AddOrUpdate(p.Slot, 1, (_, prior) => unchecked(prior + 1));
         foreach (var g in gates.Values) g.EmergencyStop();
         Log("ALL", "EMERGENCY STOP", "requested from " + source, 0);
         // Emergency plug-OFF commands begin immediately and concurrently:
