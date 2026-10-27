@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.2: Roller-coaster intro, 4DX screen effects, YouTube presentations, recline fix (2026-10-27)
+
+### Added
+- **ZMF THEATERS roller-coaster intro** (iPhone and Windows). An original first-person ride (~49 s) plays on the auditorium screen before the feature: station, ADMIT ONE arch, lift hill, first drop, banked turns through film-reel rings, past giant popcorn buckets, a splash tunnel and a final rise onto the ZMF THEATERS marquee with fireworks.
+  - Physics-based speed with banking, so the ride is deterministic and the 4DX seat never drifts from the picture.
+  - The announcer (system voice) says "Welcome to ZMF Theaters…" and ends with "ZMF Theaters. Sit back, relax, and enjoy the show."
+  - 4DX tickets: the virtual seat pitches, banks and surges with the ride, with wind at speed, water spray in the splash tunnel and rumble on the chain lift.
+  - iPhone 3D tickets get true stereo red/cyan (two rendered eyes).
+  - Toggles: roller-coaster intro and announcer voice.
+- **4DX screen layer**: water droplets that bead and drain, mist haze, wind streaks and vibration over your view while seated. Light flashes are opt-in (off by default).
+- **YouTube presentations** before the feature in **2D, 3D, 4DX or 4DX + 3D**. iPhone: Trailer & Preshow Manager. Windows: the new Presentations page (WebView2).
+  - 4DX presentations move the virtual seat with the player clock and add wind and water mist.
+  - 3D is a red/cyan stereo window: YouTube does not let apps read its pixels, so this is not the AI depth conversion used for your films.
+  - The YouTube cinema browser also has the four formats.
+- **Premium recliner seats**: upholstered cushions, channel-tufted backrest, wing bolsters, headrest, padded armrests with chrome trim, lit cupholders, and 4DX air/water jets on the seat backs.
+- **Recline on Windows**: press R or use the Recline button.
+
+### Fixed
+- **Recline showed only red**: on iPhone the reclined camera moved inside the seat's backrest. Recline now tilts your head back and lowers it, staying in front of the upholstery (both apps).
+- **YouTube error 152**: the iPhone player now identifies the app's own origin. If the uploader blocks embedding, the video opens on YouTube's watch page with 4DX timing intact.
+- iPhone world building no longer copies vertex batches on every quad (launch hang with detailed geometry).
+
 ## 0.3.0: Real 3D conversion, Windows 3D cinema, 4DX teaser (2026-10-25)
 
 ### Added
