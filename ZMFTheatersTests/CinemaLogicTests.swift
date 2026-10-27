@@ -152,6 +152,47 @@ final class CinemaLogicTests: XCTestCase {
         XCTAssertEqual(engine.seatTilt, .zero)
     }
 
+    func testYouTubePlayerProjectsOntoRealAuditoriumScreen() {
+        let size = CGSize(width: 1179, height: 2556)
+        let fov = Float(AppSettings().seatedFieldOfView) * .pi / 180
+        for room in [5, 9] {
+            let seat = CinemaWorld.seatPosition(room: room, row: 4, seat: 3)
+            let eye = seat + Vec3(0, 1.12, 0)
+            let center = CinemaWorld.screenCenter(room)
+            let camera = CinemaGame.CameraState(eye: eye, target: center)
+            let rect = CinemaScreenAnchor.frame(room: room, camera: camera,
+                                                fieldOfView: fov, viewport: size)
+            XCTAssertNotNil(rect, "screen in both mirrored wings must project in front of the viewer")
+            XCTAssertGreaterThan(rect?.width ?? 0, 120)
+            XCTAssertGreaterThan(rect?.height ?? 0, 40)
+            XCTAssertLessThan(abs((rect?.midX ?? 0) - size.width / 2), size.width * 0.12)
+        }
+    }
+
+    func testYouTubeScreenAnchorIsWorldFixedWhenSeatMoves() {
+        let room = 9
+        let seat = CinemaWorld.seatPosition(room: room, row: 4, seat: 3)
+        let center = CinemaWorld.screenCenter(room)
+        let eye = seat + Vec3(0, 1.12, 0)
+        let viewport = CGSize(width: 1179, height: 2556)
+        let fov = Float(AppSettings().seatedFieldOfView) * .pi / 180
+        let atRest = CinemaScreenAnchor.frame(
+            room: room, camera: .init(eye: eye, target: center),
+            fieldOfView: fov, viewport: viewport)!
+        // The modelled 4DX seat lifts the camera, while the world screen stays
+        // at CinemaWorld.screenCenter(room); the web player follows projection.
+        let rise = Vec3(0, 0.17, 0)
+        let whileRising = CinemaScreenAnchor.frame(
+            room: room, camera: .init(eye: eye + rise, target: center + rise),
+            fieldOfView: fov, viewport: viewport)!
+        XCTAssertGreaterThan(abs(atRest.midY - whileRising.midY), 1,
+                             "projected screen moves relative to the viewer, not with seat-mounted UI")
+        let backwards = CinemaScreenAnchor.frame(
+            room: room, camera: .init(eye: eye, target: eye + Vec3(-1, 0, 0)),
+            fieldOfView: fov, viewport: viewport)
+        XCTAssertNil(backwards, "screen behind the camera must not become a floating overlay")
+    }
+
     func testYouTubeCinemaSessionClockAndManualCutRecording() {
         let cinema = YouTubeCinemaSession()
         cinema.open(videoID: "dQw4w9WgXcQ", title: "Test",
