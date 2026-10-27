@@ -15,6 +15,14 @@ public sealed class ScreenFx
     readonly List<Line> streaks = new();
     readonly Rectangle haze = new() { Fill = Brushes.White, Opacity = 0 };
     readonly Rectangle flash = new() { Fill = Brushes.White, Opacity = 0 };
+    // Event effects: shockwave ring, embers, flying debris, smoke, hit vignette.
+    readonly Ellipse shockRing = new() { Stroke = new SolidColorBrush(Color.FromArgb(200, 255, 190, 120)), StrokeThickness = 18, Opacity = 0 };
+    readonly List<Ellipse> embers = new();
+    readonly List<Rectangle> debris = new();
+    readonly Rectangle smoke = new() { Opacity = 0, Fill = new LinearGradientBrush(Color.FromArgb(0, 40, 38, 36), Color.FromArgb(220, 40, 38, 36), 90) };
+    readonly Rectangle vignette = new() { Opacity = 0, Fill = new RadialGradientBrush(Color.FromArgb(0, 0, 0, 0), Color.FromArgb(230, 10, 0, 0)) };
+    double shockAge = 10;
+    public double Shock { get; private set; }
     public double Water { get; private set; }
     public double Wind { get; private set; }
     public double Flash { get; private set; }
@@ -43,7 +51,56 @@ public sealed class ScreenFx
             streaks.Add(l);
             Layer.Children.Add(l);
         }
+        Layer.Children.Add(smoke);
+        shockRing.Effect = new System.Windows.Media.Effects.BlurEffect { Radius = 14 };
+        Layer.Children.Add(shockRing);
+        var emberBrush = new RadialGradientBrush(Color.FromArgb(255, 255, 200, 120), Color.FromArgb(0, 255, 90, 20)); emberBrush.Freeze();
+        for (int i = 0; i < 40; i++) { var e = new Ellipse { Fill = emberBrush, Opacity = 0 }; embers.Add(e); Layer.Children.Add(e); }
+        for (int i = 0; i < 24; i++)
+        {
+            var d = new Rectangle { Fill = i % 4 == 0 ? new SolidColorBrush(Color.FromRgb(255, 150, 60)) : new SolidColorBrush(Color.FromRgb(20, 16, 12)), Opacity = 0, RenderTransformOrigin = new Point(0.5, 0.5) };
+            debris.Add(d); Layer.Children.Add(d);
+        }
+        Layer.Children.Add(vignette);
         Layer.Children.Add(flash);
+    }
+
+    /// Event-driven layer from the real-time detector (all 0–1).
+    public void UpdateEvents(double dt, double time, double shock, double emberLevel, double smokeLevel, double debrisLevel, double hit, double width, double height)
+    {
+        double w = Math.Max(1, width), h = Math.Max(1, height);
+        if (shock > Shock + 0.2) shockAge = 0;
+        Shock = shock; shockAge += dt;
+        var rad = shockAge * Math.Max(w, h) * 0.9;
+        shockRing.Width = shockRing.Height = Math.Max(1, rad * 2);
+        Canvas.SetLeft(shockRing, w / 2 - rad); Canvas.SetTop(shockRing, h / 2 - rad);
+        shockRing.Opacity = shockAge < 1.2 ? Math.Clamp(shock, 0, 1) * (1 - shockAge / 1.2) : 0;
+        smoke.Width = w; smoke.Height = h; smoke.Opacity = Math.Clamp(smokeLevel, 0, 1) * 0.45;
+        vignette.Width = w; vignette.Height = h; vignette.Opacity = Math.Clamp(hit, 0, 1) * 0.6;
+        int n = (int)(Math.Clamp(emberLevel, 0, 1) * embers.Count);
+        for (int i = 0; i < embers.Count; i++)
+        {
+            var e = embers[i];
+            if (i >= n) { e.Opacity = 0; continue; }
+            double seed = i * 5.17 + 300, life = (time * (0.12 + Hash(seed) * 0.2) + Hash(seed + 1)) % 1;
+            double x = Hash(seed + 2) * w + Math.Sin(time * 2 + seed) * 18, y = h * (1 - life);
+            double r = 2 + Hash(seed + 3) * 4;
+            e.Width = e.Height = r * 2; Canvas.SetLeft(e, x - r); Canvas.SetTop(e, y - r);
+            e.Opacity = Math.Min(1, life * 6) * (1 - life) * (0.6 + 0.4 * Math.Sin(time * 9 + seed));
+        }
+        int m = (int)(Math.Clamp(debrisLevel, 0, 1) * debris.Count);
+        for (int i = 0; i < debris.Count; i++)
+        {
+            var d = debris[i];
+            if (i >= m) { d.Opacity = 0; continue; }
+            double seed = i * 9.31 + 500, life = (time * (0.9 + Hash(seed) * 1.2) + Hash(seed + 1)) % 1;
+            double ang = Hash(seed + 2) * Math.PI * 2, dist = life * Math.Max(w, h) * 0.7;
+            double sz = 4 + Hash(seed + 3) * 12;
+            d.Width = sz; d.Height = sz * (0.4 + Hash(seed + 4));
+            Canvas.SetLeft(d, w / 2 + Math.Cos(ang) * dist - sz / 2); Canvas.SetTop(d, h / 2 + Math.Sin(ang) * dist - sz / 2);
+            d.RenderTransform = new RotateTransform(time * 400 * (Hash(seed + 5) - 0.5) + seed);
+            d.Opacity = (1 - life) * 0.9;
+        }
     }
 
     /// Targets are 0–1. Water rises fast and drains slowly; flash ≤ 0.35.
@@ -84,5 +141,5 @@ public sealed class ScreenFx
         }
     }
 
-    public void Clear() { Water = Wind = Flash = 0; Update(0, 0, 0, 0, 0, Layer.ActualWidth, Layer.ActualHeight); }
+    public void Clear() { Water = Wind = Flash = 0; Update(0, 0, 0, 0, 0, Layer.ActualWidth, Layer.ActualHeight); UpdateEvents(0, 0, 0, 0, 0, 0, 0, Layer.ActualWidth, Layer.ActualHeight); }
 }

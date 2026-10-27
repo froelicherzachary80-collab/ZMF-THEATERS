@@ -116,6 +116,8 @@ public partial class CinemaWindow : Window
     double lastFxSend;
     readonly ScreenFx screenFx = new();
     (double x, double y, double pitch, double yaw)? rideSeat;
+    double rideRoll;
+    LoopbackSound? loopback;
     double fxWater, fxWind, fxFlash;
     bool reclined;
     double reclineBlend;
@@ -143,6 +145,7 @@ public partial class CinemaWindow : Window
         this.shotName = shotName;
         this.shotPath = shotPath;
         featured = RotationDirector.Select(catalog, RotationDirector.PeriodIndex(DateTime.UtcNow));
+        fourDX.Detected += e => _ = tactsuit?.SendEventAsync(e.Kind, e.Strength);
         BuildScene();
         UpdateWallet();
         if (partyFilm != null)
@@ -310,6 +313,7 @@ public partial class CinemaWindow : Window
         _ = tactsuit?.DisposeAsync();
         stereo?.Dispose();
         try { voice?.Dispose(); } catch { }
+        loopback?.Dispose();
     }
 
     // MARK: Frame loop
@@ -354,7 +358,15 @@ public partial class CinemaWindow : Window
         }
         double cyaw = yaw + seatMotion.yaw * Math.PI / 180, cpitch = pitch + seatMotion.pitch * Math.PI / 180 + 0.16 * reclineBlend;
         Cam.Position = new Point3D(cx, ey, cz);
-        Cam.LookDirection = new Vector3D(Math.Sin(cyaw) * Math.Cos(cpitch), Math.Sin(cpitch), Math.Cos(cyaw) * Math.Cos(cpitch));
+        var look = new Vector3D(Math.Sin(cyaw) * Math.Cos(cpitch), Math.Sin(cpitch), Math.Cos(cyaw) * Math.Cos(cpitch));
+        Cam.LookDirection = look;
+        // The motion seat rolls the view (banking, explosions, coaster turns).
+        var rollDeg = seated != null ? (rideSeat != null ? rideRoll : fourDX.Roll) : 0;
+        var rightV = Vector3D.CrossProduct(look, new Vector3D(0, 1, 0));
+        if (rightV.LengthSquared > 1e-6) rightV.Normalize();
+        var upV = Vector3D.CrossProduct(rightV, look);
+        var rr = rollDeg * Math.PI / 180;
+        Cam.UpDirection = upV * Math.Cos(rr) + rightV * Math.Sin(rr);
         Cam.FieldOfView = seated != null ? 62 : 75;
 
         markerT.OffsetX = 0; // updated below
@@ -476,8 +488,8 @@ public partial class CinemaWindow : Window
             var status = ticket?.Format switch
             {
                 Format.ThreeD => stereo?.Status ?? "3D",
-                Format.FourDX => "Auto 4DX · picture motion analysis",
-                Format.FourDX3D => (stereo?.Status ?? "3D preparing") + " · Auto 4DX",
+                Format.FourDX => "Auto 4DX · " + fourDX.Status,
+                Format.FourDX3D => (stereo?.Status ?? "3D preparing") + " · Auto 4DX · " + fourDX.Status,
                 _ => "",
             };
             StatusLine.Text = status;
@@ -603,8 +615,8 @@ public partial class CinemaWindow : Window
         FormatNote.Text = ChosenFormat switch
         {
             Format.ThreeD => "ZMF DepthCinema AI converts the film to red/cyan 3D live (Depth Anything V2 on your GPU). Wear red-left / cyan-right glasses. Converted 3D approximates depth.",
-            Format.FourDX => "Automatic gentle motion from picture analysis. Semantic effects are in development.",
-            Format.FourDX3D => "AI red/cyan depth conversion plus automatic gentle motion. Semantic effects are in development.",
+            Format.FourDX => "Real-time 4DX: the chair follows the film's camera motion, and the soundtrack triggers hits, booms and debris with jolts, smoke, embers and TactSuit patterns.",
+            Format.FourDX3D => "AI red/cyan depth conversion plus real-time 4DX from the film's motion and soundtrack.",
             _ => "Plays exactly as mastered.",
         };
         UpdatePrice();
@@ -817,7 +829,8 @@ public partial class CinemaWindow : Window
             if (fourDXTicket)
             {
                 var c = ZMFCoasterTrack.Shared.CueAt(coasterTime);
-                rideSeat = (c.Side, c.Lift, c.Pitch * 180 / Math.PI * 0.6, c.Roll * 180 / Math.PI * 0.6);
+                rideSeat = (c.Side, c.Lift, c.Pitch * 180 / Math.PI * 0.6, 0);
+                rideRoll = c.Roll * 180 / Math.PI * 0.6;
                 water = c.Water; wind = c.Wind; flash = c.Flash;
                 _ = tactsuit?.SendAsync(c.Rumble, 0);
             }
@@ -828,6 +841,7 @@ public partial class CinemaWindow : Window
             {
                 var m = FourDXEngine.PresentationMotion(presenter.Time);
                 rideSeat = (m.x, m.y, m.pitch, m.yaw);
+                rideRoll = m.yaw * 0.4;
                 wind = m.wind; water = m.water;
             }
             if (time - lastFxSend > 0.05)
@@ -839,12 +853,16 @@ public partial class CinemaWindow : Window
         }
         else if (fourDXTicket && player?.IsPlaying == true)
         {
-            wind = Math.Min(1, fourDX.Rumble * 4);   // wind follows measured picture motion
+            wind = fourDX.Wind;   // wind follows tracked camera speed and blasts
+            if (fourDX.LastEvent is { Kind: SoundEventKind.Boom, WithFlash: true } && fourDX.Shock > 0.6) flash = 0.25 * fourDX.Shock;
         }
         if (!config.ScreenEffects || seated == null) water = wind = flash = 0;
         if (!config.ScreenFlashes) flash = 0;
         fxWater = water; fxWind = wind; fxFlash = flash;
         screenFx.Update(dt, time, water, wind, flash, Root.ActualWidth, Root.ActualHeight);
+        bool eventsOn = config.ScreenEffects && seated != null && fourDXTicket && player != null;
+        screenFx.UpdateEvents(dt, time, eventsOn ? fourDX.Shock : 0, eventsOn ? fourDX.Embers : 0, eventsOn ? fourDX.Smoke : 0,
+            eventsOn ? fourDX.Debris : 0, eventsOn ? fourDX.Hit : 0, Root.ActualWidth, Root.ActualHeight);
     }
 
     async Task StartPlaybackAsync()
@@ -945,11 +963,12 @@ public partial class CinemaWindow : Window
         }
         if (ticket.Format.Uses4DX() && FourDXPreview.Active(config.Force4DX) && player.IsPlaying)
         {
-            fourDX.Analyse(got ? frameBuf : null, w, h, dt, 1.0, CurrentSeconds);
+            if (config.SoundEvents && loopback == null) { loopback = new LoopbackSound(); loopback.Start(); }
+            fourDX.Analyse(got ? frameBuf : null, w, h, dt, config.FourDXIntensity, CurrentSeconds, loopback?.Running == true ? loopback.Drain() : null);
             timeline.Update(CurrentSeconds, true, dt);
-            _ = tactsuit?.SendAsync(Math.Max(fourDX.Rumble, timeline.Level(Auto4DXTargets.Seat)), timeline.Level(Auto4DXTargets.Haptics));
+            _ = tactsuit?.SendAsync(Math.Max(fourDX.Rumble, timeline.Level(Auto4DXTargets.Seat)), Math.Max(fourDX.Impact, timeline.Level(Auto4DXTargets.Haptics)));
         }
-        else if (!player.IsPlaying) { fourDX.Reset(); timeline.Update(CurrentSeconds, false, dt); }
+        else if (!player.IsPlaying) { fourDX.Reset(); timeline.Update(CurrentSeconds, false, dt); loopback?.Drain(); }
 
         var len = Math.Max(1, player.Length / 1000.0);
         TimeText.Text = $"{Fmt(CurrentSeconds)} / {Fmt(len)}";
@@ -977,6 +996,7 @@ public partial class CinemaWindow : Window
         var p = player; var f = frames; var lib = libVLC;
         player = null; frames = null; libVLC = null;
         timeline.Stop();
+        loopback?.Dispose(); loopback = null;
         if (p == null) return;
         ThreadPool.QueueUserWorkItem(_ =>
         {

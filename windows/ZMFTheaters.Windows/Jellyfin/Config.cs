@@ -71,6 +71,11 @@ public sealed class AppConfig
     /// 4DX water/mist/wind layer over your view; flashes are opt-in.
     public bool ScreenEffects { get; set; } = true;
     public bool ScreenFlashes { get; set; }
+    /// 4DX intensity and motion sensitivity (0–1). At 1 the chair follows the
+    /// picture closely and strongly.
+    public double FourDXIntensity { get; set; } = 1.0;
+    /// Listen to the PC's audio output for real-time sound events.
+    public bool SoundEvents { get; set; } = true;
 
     static string Dir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ZMFTheaters");
     static string FilePath => Path.Combine(Dir, "config.json");

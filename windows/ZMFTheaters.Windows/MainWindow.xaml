@@ -179,6 +179,12 @@
                 <CheckBox x:Name="VoiceBox" Content="Announcer voice (&quot;Welcome to ZMF Theaters…&quot;)" Foreground="White" Click="OnPreshowOption"/>
                 <CheckBox x:Name="FxBox" Content="4DX water spray, mist and wind on screen" Foreground="White" Click="OnPreshowOption"/>
                 <CheckBox x:Name="FlashBox" Content="4DX light flashes (off by default — photosensitivity)" Foreground="White" Click="OnPreshowOption"/>
+                <TextBlock Text="REAL-TIME 4DX" FontWeight="Black" Foreground="{StaticResource GoldBrush}" Margin="0,14,0,4"/>
+                <TextBlock x:Name="IntensityText" Foreground="White"/>
+                <Slider x:Name="IntensitySlider" Minimum="0" Maximum="100" Width="320" HorizontalAlignment="Left" ValueChanged="OnIntensity"/>
+                <CheckBox x:Name="SoundBox" Content="Analyse the soundtrack live (hits, booms, debris) from the PC's audio output" Foreground="White" Click="OnPreshowOption"/>
+                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource DimTextBrush}" Margin="0,4,0,0"
+                           Text="The chair follows the film's camera motion (pans bank, tilts pitch, push-ins surge, shake vibrates). Sharp sounds (stabs, punches, shots), booms (explosions) and debris trigger jolts, shockwaves, embers, smoke and TactSuit patterns. Sounds are classified acoustically, so a stab and a punch feel alike. At 100% the chair is very motion-sensitive."/>
             </StackPanel>
             <Border Grid.Column="1" Background="{StaticResource PanelBrush}" CornerRadius="12" Padding="16" Margin="16,48,0,0" VerticalAlignment="Top">
                 <StackPanel>

@@ -187,6 +187,17 @@ public partial class MainWindow : Window
         VoiceBox.IsChecked = config.CoasterVoice;
         FxBox.IsChecked = config.ScreenEffects;
         FlashBox.IsChecked = config.ScreenFlashes;
+        SoundBox.IsChecked = config.SoundEvents;
+        IntensitySlider.Value = config.FourDXIntensity * 100;
+        IntensityText.Text = $"Intensity & motion sensitivity: {config.FourDXIntensity * 100:0}%";
+    }
+
+    void OnIntensity(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (IntensityText == null) return;
+        config.FourDXIntensity = Math.Clamp(IntensitySlider.Value / 100, 0, 1);
+        IntensityText.Text = $"Intensity & motion sensitivity: {config.FourDXIntensity * 100:0}%";
+        config.Save();
     }
 
     void OnAddPresentation(object sender, RoutedEventArgs e)
@@ -231,6 +242,7 @@ public partial class MainWindow : Window
         config.CoasterVoice = VoiceBox.IsChecked == true;
         config.ScreenEffects = FxBox.IsChecked == true;
         config.ScreenFlashes = FlashBox.IsChecked == true;
+        config.SoundEvents = SoundBox.IsChecked == true;
         config.Save();
     }
 
