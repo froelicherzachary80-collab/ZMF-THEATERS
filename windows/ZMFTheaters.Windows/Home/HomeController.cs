@@ -417,16 +417,16 @@ public sealed class HomeController : IAsyncDisposable
         EmergencyStopped = true;
         foreach (var g in gates.Values) g.EmergencyStop();
         Log("ALL", "EMERGENCY STOP", "requested from " + source, 0);
-        // Warm the light before removing its Tapo power source. If BLE is
-        // unavailable the emergency OFF still proceeds.
-        if (light != null)
-        {
-            try { await WriteLightAsync(GoveeProtocol.Color(255, 160, 80, cfg.Light.Variant),
-                "emergency: warm white before power cutoff", CancellationToken.None); }
-            catch { /* Physical plug OFF must never depend on BLE. */ }
-        }
+        // Emergency plug-OFF commands begin immediately and concurrently:
+        // never delay safety shutdown waiting for Bluetooth packets.
         var tasks = cfg.Plugs.Where(p => (p.Authorized || SimulationMode) && !p.Essential && plugs.ContainsKey(p.Slot))
-            .Select(p => SendPlugAsync(p.Slot, false, "emergency stop", CancellationToken.None, true, true, double.NaN, 0, ""));
+            .Select(p => SendPlugAsync(p.Slot, false, "emergency stop", CancellationToken.None, true, true, double.NaN, 0, "")).ToList();
+        // A Govee strip with no managed Tapo power source may still be lit:
+        // dim it in parallel, without delaying the plug cutoffs.
+        var sourceManaged = cfg.Plugs.Any(p => p.IsLightPower && (p.Authorized || SimulationMode) && !p.Essential);
+        if (light != null && !sourceManaged)
+            tasks.Add(WriteLightAsync(GoveeProtocol.Color(255, 160, 80, cfg.Light.Variant),
+                "emergency: warm white", CancellationToken.None).ContinueWith(_ => true));
         await Task.WhenAll(tasks);
     }
 
