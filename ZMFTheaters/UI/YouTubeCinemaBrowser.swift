@@ -302,12 +302,17 @@ enum CinemaScreenAnchor {
         let w = CinemaWorld.screenSize.x * 0.485
         let h = CinemaWorld.screenSize.y * 0.485
         let up = Vec3(0, 1, 0)
-        let corners = [
-            center - right * w + up * h,
-            center + right * w + up * h,
-            center - right * w - up * h,
-            center + right * w - up * h,
-        ]
+        // Break SIMD arithmetic into explicitly typed terms for the Swift
+        // compiler (large chained SIMD expressions can time out type-checking).
+        let horizontalOffset: Vec3 = right * w
+        let verticalOffset: Vec3 = up * h
+        let leftCenter: Vec3 = center - horizontalOffset
+        let rightCenter: Vec3 = center + horizontalOffset
+        let topLeft: Vec3 = leftCenter + verticalOffset
+        let topRight: Vec3 = rightCenter + verticalOffset
+        let bottomLeft: Vec3 = leftCenter - verticalOffset
+        let bottomRight: Vec3 = rightCenter - verticalOffset
+        let corners: [Vec3] = [topLeft, topRight, bottomLeft, bottomRight]
         var minX = CGFloat.infinity, maxX = -CGFloat.infinity
         var minY = CGFloat.infinity, maxY = -CGFloat.infinity
         for point in corners {
