@@ -1,12 +1,25 @@
 # ZMF THEATERS+
 
-**AAA-inspired private cinema universe for iPhone and Windows 10/11. Version 0.3.**
+**AAA-inspired private cinema universe for iPhone and Windows 10/11. Version 0.5 preview (HOME 4DX GENESIS).**
 
-**Downloads:** the latest builds are attached to the [`v0.3.0-preview` release](../../releases/tag/v0.3.0-preview):
+**Downloads:** Windows builds of 0.5 are attached to the [`v0.5.0-preview` release](../../releases/tag/v0.5.0-preview); the 0.3 builds (including the iPhone IPA) remain on the [`v0.3.0-preview` release](../../releases/tag/v0.3.0-preview):
 
 - `ZMFTheaters-unsigned.ipa` for iPhone (see [docs/INSTALL.md](docs/INSTALL.md))
 - `ZMFTheaters.exe` for Windows 10/11 (single file; Windows SmartScreen may warn because the exe isn't code-signed: choose *More info → Run anyway*)
 - `ZMFTheaters-Windows-x64.zip`, the same Windows app as a portable folder
+
+**New in 0.5 (preview) — HOME 4DX GENESIS:** the Windows app can drive **real devices you own**:
+- **Tapo P125M** smart plugs: native local KLAP protocol, with discovery, on/off and acknowledgements.
+- A USB fan as **real 4DX wind**, enabled only after a fan-restart test passes.
+- A **Govee Bluetooth strip** for scene lighting, using the community protocol, confirmed by you.
+- An **AI scene director** that decides effects from what the film actually shows and sounds like.
+- **Private cinema rooms** with invite links, chat and labelled **AI guests**.
+- An **iPhone companion**: Safari page plus a link in the iOS app.
+- A hardware **Testing Laboratory** and a global **emergency stop**.
+
+Start with [docs/HOME4DX_SETUP.md](docs/HOME4DX_SETUP.md). Safety: [docs/HOME4DX_SAFETY_AND_SECURITY.md](docs/HOME4DX_SAFETY_AND_SECURITY.md). Problems: [docs/HOME4DX_TROUBLESHOOTING.md](docs/HOME4DX_TROUBLESHOOTING.md).
+
+> Physical features are **awaiting hardware verification** until you run the matching Testing Laboratory test with your own devices. CI only tests mocks.
 
 **New in 0.3:** every ticket can be **2D or real converted 3D** (red/cyan glasses), the Windows app is now a **walkable 3D cinema** with lobby, doors and seating, and there is a **ZMF 4DX preview on October 27–28, 2026** with motion seat, strobes, smoke and **bHaptics TactSuit Air** support on Windows. See [docs/3D_AND_4DX.md](docs/3D_AND_4DX.md).
 

@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.5.0-preview: HOME 4DX GENESIS (2026-10-27)
+
+### Added
+- **Immersive Home 4DX** (Windows, Admin → Immersive Home 4DX). It has 12 sections: dashboard, device discovery, automatic AI effects, physical configuration, virtual effects, lighting, wind, private rooms, PC + iPhone companion, testing laboratory, safety/emergency stop and diagnostics.
+  - Device states are explicit: CONNECTED — TESTED, CONNECTED — UNVERIFIED OUTPUT, DISCONNECTED, SIMULATED, UNSUPPORTED.
+- **Tapo P125M control:**
+  - A native implementation of TP-Link's local KLAP protocol: handshake, AES session and signed sequence numbers. It is checked byte-for-byte against python-kasa 0.12.0 reference vectors.
+  - UDP discovery on port 20002, on/off with the plug's reported state as acknowledgement, latency, and reconnects.
+  - Credentials are stored with DPAPI.
+- **Power gate:**
+  - minimum on/off times, an hourly switch budget, a continuous-on cutoff, deduplication
+  - an allowlist, and an "essential equipment" lock
+- **Fan restart test:** wind automation only after the user confirms the fan resumes after power returns.
+- **Govee Bluetooth LE:**
+  - scan, model from the advertised name, and a model-identification wizard
+  - community colour-protocol variants confirmed visually by the user
+  - keep-alive and reconnect, and an explicit UNSUPPORTED outcome
+- **Scene director:**
+  - Uses live picture and sound analysis for wind, for a stabilised palette (ocean, forest, fire, night, horror, sunset, sci-fi, fantasy, romance, warm indoor) and for bounded blast swells.
+  - Has gentle/standard/intense/extreme levels, flash policies and a virtual-only mode.
+  - Uses a unified `FourDXEvent` and saves per-title effect timelines.
+- **Private cinema rooms:**
+  - a local ASP.NET Core host with access-code/invite tokens and throttling
+  - rooms, chat, seats, playback state and persistence
+  - AI guests (Nova, Alex, Mia, Jordan), scripted and labelled
+- **iPhone companion:** a Safari web app, plus a Home 4DX link in the iOS app's Server Manager that reports playback so the PC can replay analysed timelines.
+- **Emergency stop** everywhere. The fan turns off on pause, seek, stop, end of film, "nothing playing" and app exit.
+- AI guests sit next to you in the Windows auditorium, and the room lighting mirrors the director's palette.
+- **CI:**
+  - a `--selftest-home` mock-device suite and Control Center screenshots
+  - a tag-gated release workflow that publishes only after the build and tests pass
+- **Docs:** setup guide, troubleshooting, safety and security, and the bHaptics audit.
+
+### Notes
+- Physical features await verification with your own hardware.
+- No variable fan speed.
+- Scene labels are heuristics, not object recognition.
+- YouTube and other unanalysable sources get no automatic physical effects.
+
+
 ## Unreleased: Real-time 4DX from the film (2026-10-27)
 
 ### Added

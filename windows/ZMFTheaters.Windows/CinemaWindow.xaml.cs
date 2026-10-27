@@ -162,7 +162,8 @@ public partial class CinemaWindow : Window
         if (Home is { } hub)
         {
             hub.ControlRequested += OnHomeControl;
-            Closed += (_, _) => hub.ControlRequested -= OnHomeControl;
+            hub.EmergencyStop += OnHomeEmergencyStop;
+            Closed += (_, _) => { hub.ControlRequested -= OnHomeControl; hub.EmergencyStop -= OnHomeEmergencyStop; };
         }
         BuildScene();
         UpdateWallet();
@@ -1226,6 +1227,14 @@ public partial class CinemaWindow : Window
         if (homeWasPlaying && !playing) _ = hub.Devices.SuspendAsync("paused");
         homeWasPlaying = playing;
     }
+
+    /// Emergency stop also silences the (optional) TactSuit and the virtual ride.
+    void OnHomeEmergencyStop() => Dispatcher.BeginInvoke(() =>
+    {
+        if (tactsuit != null) tactsuit.OutputEnabled = false;
+        rideSeat = null;
+        screenFx.Clear();
+    });
 
     void OnHomeControl(string action, double position) => Dispatcher.BeginInvoke(() =>
     {
