@@ -120,6 +120,7 @@ public sealed class HomeHub : IAsyncDisposable
             else
             {
                 Director.Cancel("no analysed timeline");
+                _ = Devices.SuspendAsync("no analysed timeline");
                 PhoneNote = "No analysed 4DX timeline for this title yet — play it once in Auto 4DX on the PC. Physical effects stay off (nothing is scripted in its place).";
             }
             SyncRooms(ph with { Position = pos });

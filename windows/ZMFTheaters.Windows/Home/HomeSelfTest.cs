@@ -31,6 +31,7 @@ public static class HomeSelfTest
             Director(Check);
             Timeline(Check);
             await MockPlugEndToEnd(Check);
+            await PowerChain(Check);
             await HostEndToEnd(Check);
             await IdleSafety(Check);
         }
@@ -313,6 +314,53 @@ public static class HomeSelfTest
         hub.Tick(0.1);
         await WaitFor(() => !plug.On);
         Check(!plug.On, "[safety] when playback goes silent the automated fan turns off by itself");
+    }
+
+    // MARK: TAPO_02 -> Govee power-chain, all simulated
+
+    static async Task PowerChain(Action<bool, string> Check)
+    {
+        var cfg = new HomeConfig { PhysicalEnabled = true };
+        cfg.Migrate();
+        var supply = cfg.Plugs.First(p => p.Slot == "TAPO_02");
+        Check(supply.IsLightPower && supply.Role == "GOVEE_POWER" &&
+            !supply.LightPowerAutomationAllowed, "[power chain] TAPO_02 defaults to Govee power, DISARMED");
+        supply.Authorized = true; supply.PlugTestPassed = true;
+        cfg.Light.Authorized = true; cfg.Light.ColorVerified = true;
+        Check(!supply.LightPowerAutomationAllowed, "[power chain] unverified Govee power restore blocks real automation");
+        supply.LightPowerRestoreVerified = true;
+        Check(supply.LightPowerAutomationAllowed, "[power chain] confirmed strip power restart arms its source");
+        supply.Essential = true;
+        Check(!supply.LightPowerAutomationAllowed, "[power chain] essential-device override always blocks source");
+        supply.Essential = false;
+
+        await using var ctl = new HomeController(cfg, () => { });
+        var fakeLight = new MockLight();
+        ctl.UseMocks(null, fakeLight);
+        var clock = new DateTime(2026, 10, 27, 20, 0, 0, DateTimeKind.Utc);
+        ctl.Clock = () => clock;
+        var director = new SceneDirector();
+        for (double x = 0; x < 7; x += 0.1)
+            director.Update(In(x, wind: 0.05, speed: 0.05, low: 0.05, r: 20, g: 70, b: 180), 0.1);
+        ctl.Apply(director, 7);
+        await WaitFor(() => ctl.Devices["TAPO_02"].ReportedOn == true);
+        Check(ctl.Devices["TAPO_02"].ReportedOn == true, "[power chain/mock] analysed playback switches Govee source ON");
+        ctl.Apply(director, 7.1);
+        await WaitFor(() => fakeLight.Packets.Count >= 2);
+        Check(fakeLight.Packets.Count >= 2, "[power chain/mock] BLE colour and brightness follow confirmed source power");
+        await ctl.SuspendAsync("paused");
+        Check(ctl.Devices["TAPO_02"].ReportedOn == false, "[power chain/mock] pause switches source OFF");
+        ctl.Apply(director, 7.2);
+        await Task.Delay(150);
+        Check(ctl.Devices["TAPO_02"].ReportedOn == false, "[power chain/mock] 60s off cooldown prevents rapid LED cycling");
+        clock = clock.AddSeconds(65);
+        ctl.Apply(director, 70);
+        await WaitFor(() => ctl.Devices["TAPO_02"].ReportedOn == true);
+        await ctl.StopAllEffectsAsync("test");
+        Check(ctl.Devices["TAPO_02"].ReportedOn == false && ctl.EmergencyStopped,
+            "[power chain/mock] emergency stop drops LED power");
+        var unauthorized = new HomePlug { Slot = "TAPO_02", Role = "GOVEE_POWER", PlugTestPassed = true, LightPowerRestoreVerified = true };
+        Check(!unauthorized.LightPowerAutomationAllowed, "[power chain] never authorize a plug just because it passed tests");
     }
 
     // MARK: Private cinema host
