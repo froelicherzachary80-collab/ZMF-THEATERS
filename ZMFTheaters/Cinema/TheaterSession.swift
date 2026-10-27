@@ -132,9 +132,15 @@ final class TheaterSession: ObservableObject {
 
     /// CI/screenshot helper: show the ZMF presentation (roller coaster) now.
     func debugJumpToIdent() {
-        runTask?.cancel()
-        phase = .ident
-        targetLights = 0.12
+        // The cancelled sequence still runs until its first await (it sets
+        // the welcome slide), so jump only after it has finished.
+        let previous = runTask
+        previous?.cancel()
+        runTask = Task { [weak self] in
+            _ = await previous?.value
+            self?.phase = .ident
+            self?.targetLights = 0.12
+        }
     }
 
     func skipPreshow() {
