@@ -207,6 +207,12 @@ final class FourDXEngine {
         mist = 0; snow = 0; ash = 0; virtualFog = 0
         water = 0; wind = 0; flash = 0
         lastFlash = -10; lastSplash = -10
+        tracker.reset(); classifier.reset()
+        usingFineMotion = false; soundAnalysis = false
+        zoomRate = 0; rollRate = 0; shakeLevel = 0; motionEnergy = 0
+        shock = 0; embers = 0; smoke = 0; debrisFx = 0; hitFx = 0; flashPulse = 0
+        impulseOffset = .zero; impulseVel = .zero; impulseTilt = .zero; impulseTiltVel = .zero
+        baseOffset = .zero; baseTilt = .zero
         inTrailerPreview = false
         inRide = false
     }
@@ -266,7 +272,8 @@ final class FourDXEngine {
             flowY: confidence ? Float(selected.1) * min(0.24, stationary * 1.7) : 0)
     }
 
-    func update(grid: UnsafePointer<Vec4>?, dt: Float, intensity: Float, seatForward: Vec3, timestamp: Double = 0) {
+    func update(grid: UnsafePointer<Vec4>?, dt: Float, intensity: Float, seatForward: Vec3, timestamp: Double = 0,
+                fineGrid: UnsafeBufferPointer<Float>? = nil, audio: [FourDXAudioChunk] = []) {
         guard running else { return }
         let seconds = timestamp.isFinite ? max(0, timestamp) : 0
         let step = dt.isFinite ? max(0, min(0.1, dt)) : 0
@@ -294,44 +301,89 @@ final class FourDXEngine {
             if let c = closest, abs(c.timestamp - seconds) < 0.38 { cue = c }
         }
         if cutHold > 0 { cue = nil }
-        let energy = min(0.25, max(0, cue?.energy ?? 0)) * strength
-        let sx = max(-0.22, min(0.22, cue?.flowX ?? 0)) * strength
-        let sy = max(-0.22, min(0.22, cue?.flowY ?? 0)) * strength
-        if abs(sx) > 0.025 { motionKind = sx > 0 ? .bankRight : .bankLeft }
-        else if abs(sy) > 0.025 { motionKind = sy > 0 ? .lift : .drop }
-        else if energy > 0.1 { motionKind = .turbulence }
+
+        // Sensitivity: at 100% the chair follows the picture closely and
+        // strongly (≈3× the 50% response, faster, with wider travel).
+        let gain = 0.5 + 2.5 * strength * strength
+        let response = 1 - expf(-step * (4 + 12 * strength))
+        let maxBank = 0.05 + 0.15 * strength, maxPitch = 0.04 + 0.11 * strength
+        let maxTravel = 0.04 + 0.09 * strength
+
+        // Fine camera motion from the 32×18 grid, once per decoded frame.
+        var targetVel = velocity
+        if let fineGrid, let m = tracker.analyse(fineGrid) {
+            let dtv = Float(max(1.0 / 60, min(0.25, seconds - lastFineSample)))
+            lastFineSample = seconds
+            if m.cut {
+                cutHold = 0.25
+                targetVel = .zero; zoomRate = 0; rollRate = 0
+            } else {
+                targetVel = Vec2(m.flow.x / dtv / 16, m.flow.y / dtv / 9)
+                zoomRate += (m.zoom / dtv / 6 - zoomRate) * 0.5
+                rollRate += (m.roll / dtv / 6 - rollRate) * 0.5
+                shakeLevel = max(shakeLevel * 0.6, min(1, m.shake * 4))
+                motionEnergy = min(0.3, m.energy * 2.5)
+            }
+            if m.flash { classifier.noteFlash() }
+            usingFineMotion = true
+        } else if !usingFineMotion {
+            targetVel = Vec2(max(-0.22, min(0.22, cue?.flowX ?? 0)), max(-0.22, min(0.22, cue?.flowY ?? 0))) * 2.5
+            motionEnergy = min(0.25, max(0, cue?.energy ?? 0))
+        }
+        if cutHold > 0 { targetVel = .zero }
+        shakeLevel *= expf(-step * 3)
+
+        // Real-time soundtrack events (sharp hits, booms, debris).
+        classifier.sensitivity = 0.6 + 1.4 * strength
+        if !audio.isEmpty { soundAnalysis = true }
+        for chunk in audio {
+            for e in classifier.feed(chunk) { react(to: e, strength: strength) }
+        }
+        let audioRumble = soundAnalysis ? classifier.rumble : 0
+
+        let energy = max(motionEnergy, audioRumble * 0.3) * strength
+        velocity += (targetVel * strength - velocity) * response
+        if abs(velocity.x) > 0.08 { motionKind = velocity.x > 0 ? .bankRight : .bankLeft }
+        else if abs(velocity.y) > 0.08 { motionKind = velocity.y > 0 ? .drop : .lift }
+        else if zoomRate > 0.15 { motionKind = .acceleration }
+        else if zoomRate < -0.15 { motionKind = .braking }
+        else if energy > 0.1 || shakeLevel > 0.3 { motionKind = .turbulence }
         else { motionKind = .engineRumble }
 
-        let smooth: Float = 1 - expf(-step * 5)
-        rumble += (energy - rumble) * smooth
-        velocity += (Vec2(sx, sy) - velocity) * smooth
+        rumble += (min(0.4, energy + shakeLevel * 0.12 * strength) - rumble) * response
         let t = Float(seconds)
         let forward = simd_length_squared(seatForward) > 0.01 ? simd_normalize(seatForward) : Vec3(0, 0, 1)
         let horizontal = simd_cross(forward, Vec3(0, 1, 0))
         let right = simd_length_squared(horizontal) > 0.00001 ? simd_normalize(horizontal) : Vec3(1, 0, 0)
-        // Gradual movement in the simulated chair with bounded pitch, bank,
-        // vertical lift, forward thrust and vibration, not abrupt screen shake.
-        let bank = max(-0.08, min(0.08, -velocity.x * 0.34))
-        let pitch = max(-0.07, min(0.07, -velocity.y * 0.25))
-        let targetTilt = Vec2(pitch + sinf(t * 6) * rumble * 0.018,
-                              bank + sinf(t * 3.8) * rumble * 0.02)
-        let targetOffset = right * (velocity.x * 0.20) +
-            Vec3(0, velocity.y * 0.20 + sinf(t * 7) * rumble * 0.045, 0) +
-            forward * (-energy * 0.17)
-        seatTilt += (targetTilt - seatTilt) * smooth
-        seatOffset += (targetOffset - seatOffset) * smooth
+        // Pans bank the chair, tilts pitch it, push-ins surge it forward and
+        // camera roll rolls it; shake and rumble add vibration. Detected
+        // events add spring-damped jolts on top.
+        let bank = max(-maxBank, min(maxBank, -velocity.x * 0.10 * gain - rollRate * 0.06 * gain * strength))
+        let pitch = max(-maxPitch, min(maxPitch, -velocity.y * 0.07 * gain - zoomRate * 0.03 * gain * strength))
+        let vib = (sinf(t * 31) * shakeLevel * 0.012 + sinf(t * 7) * rumble * 0.03) * gain
+        let targetTilt = Vec2(pitch + sinf(t * 6) * rumble * 0.018, bank + sinf(t * 3.8) * rumble * 0.02)
+        func clampTravel(_ v: Float) -> Float { max(-maxTravel, min(maxTravel, v)) }
+        let targetOffset = right * clampTravel(velocity.x * 0.05 * gain) +
+            Vec3(0, clampTravel(velocity.y * 0.04 * gain) + vib, 0) +
+            forward * clampTravel(-zoomRate * 0.05 * gain * strength - energy * 0.1)
+        stepImpulses(step)
+        baseTilt += (targetTilt - baseTilt) * response
+        baseOffset += (targetOffset - baseOffset) * response
+        // Jolts are in seat space (x right, y up, z forward).
+        seatTilt = baseTilt + impulseTilt
+        seatOffset = baseOffset + right * impulseOffset.x + Vec3(0, impulseOffset.y, 0) + forward * impulseOffset.z
         strobe = 0 // No flashing from brightness alone.
-        fogBoost = 0 // No bright flash or hazardous physical effect is emitted.
+        fogBoost = 0
 
-        // Sequence is a visual demonstration, not scene classification.
-        // Every preset takes turns through a 56-second loop and is intensity-
-        // modulated. Later semantic recognition can select the actual cues.
-        updateAtmosphere(timestamp: seconds, activity: rumble)
-        // Wind follows measured picture motion (pans/fast movement), the same
-        // evidence that drives the seat. Water mist only rides the labelled
-        // demonstration mist scene; nothing is inferred from brightness.
-        updateScreenLayer(step: step, wind: min(1, simd_length(velocity) * 4 + rumble * 1.6) * strength,
-                          water: mist > 0.55 && rumble > 0.06 ? mist * 0.6 * strength : 0, flash: 0)
+        // Feature atmospheres now come from detected events, not a demo loop:
+        // booms leave smoke haze and embers; wind follows camera speed.
+        decayEventEffects(step)
+        mist += (0 - mist) * 0.1; snow += (0 - snow) * 0.1; ash += (embers * 0.6 - ash) * 0.1
+        virtualFog += (min(1, smoke) - virtualFog) * 0.05
+        let speed = simd_length(velocity) + abs(zoomRate) * 0.6
+        updateScreenLayer(step: step, wind: min(1, speed * 0.9 + shock * 0.8) * strength, water: 0,
+                          flash: flashesAllowed ? flashPulse : 0)
+        cueSource = soundAnalysis ? "Live picture + sound analysis" : (usingFineMotion ? "Live picture motion" : cueSource)
 
         if let c = cue, grid != nil, seconds - lastRecorded >= 0.48, mediaID != nil {
             stored.append(FourDXMotionCue(timestamp: seconds, energy: c.energy, flowX: c.flowX, flowY: c.flowY))
@@ -342,11 +394,94 @@ final class FourDXEngine {
             stored.removeAll(keepingCapacity: true)
             lastSaved = seconds
         }
-        if let p = rumblePlayer, seconds - lastHapticUpdate > 0.075 {
+        if let p = rumblePlayer, seconds - lastHapticUpdate > 0.05 {
             lastHapticUpdate = seconds
             try? p.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl,
-                                value: min(0.35, rumble), relativeTime: 0)], atTime: CHHapticTimeImmediate)
+                                value: min(0.5, rumble * (0.8 + strength)), relativeTime: 0)], atTime: CHHapticTimeImmediate)
         }
+    }
+
+    // MARK: Real-time events
+
+    private var tracker = FourDXMotionTracker()
+    private var classifier = FourDXSoundClassifier()
+    private var lastFineSample: Double = 0
+    private var usingFineMotion = false
+    private var zoomRate: Float = 0, rollRate: Float = 0
+    private var shakeLevel: Float = 0, motionEnergy: Float = 0
+    private(set) var soundAnalysis = false
+    private(set) var lastEvent: FourDXDetectedEvent?
+    private(set) var eventCount = 0
+    /// e.g. "Live picture + sound analysis · 12 effects · last: boom".
+    var statusLine: String {
+        var s = cueSource
+        if eventCount > 0 { s += " · \(eventCount) effects" }
+        if let e = lastEvent { s += " · last: " + (e.kind == .sharpHit ? "hit" : e.kind.rawValue) }
+        return s
+    }
+    /// Event-driven screen/room effects (0–1): shockwave, embers, smoke
+    /// haze, flying debris and a short warm light pulse (flash setting only).
+    private(set) var shock: Float = 0
+    private(set) var embers: Float = 0
+    private(set) var smoke: Float = 0
+    private(set) var debrisFx: Float = 0
+    private(set) var hitFx: Float = 0
+    private var flashPulse: Float = 0
+    private var impulseOffset = Vec3.zero, impulseVel = Vec3.zero
+    private var impulseTilt = Vec2.zero, impulseTiltVel = Vec2.zero
+    private var baseOffset = Vec3.zero, baseTilt = Vec2.zero
+    private var eventSeed: Float = 0
+
+    private func react(to e: FourDXDetectedEvent, strength k: Float) {
+        lastEvent = e
+        eventCount += 1
+        eventSeed += 1.618
+        let jitter = sinf(eventSeed * 12.9898) // deterministic −1…1
+        let g = e.strength * (0.4 + 1.2 * k)
+        switch e.kind {
+        case .boom:
+            impulseVel += Vec3(jitter * 0.3, 1.1, -0.9) * g
+            impulseTiltVel += Vec2(-1.4, jitter * 1.2) * g
+            shock = max(shock, e.strength)
+            embers = min(1, embers + 0.7 * e.strength)
+            smoke = min(1.2, smoke + 0.6 * e.strength)
+            if e.withFlash { flashPulse = 0.3 * e.strength }
+        case .sharpHit:
+            impulseVel += Vec3(jitter * 0.5, 0.25, -0.35) * g
+            impulseTiltVel += Vec2(-0.5, jitter * 0.9) * g
+            hitFx = max(hitFx, e.strength)
+        case .debris:
+            impulseVel += Vec3(jitter * 0.25, 0.12 * abs(jitter), 0) * g
+            debrisFx = min(1, debrisFx + 0.35 * e.strength)
+        }
+        if let engine, let pattern = FourDXHapticPatterns.pattern(for: e.kind, strength: e.strength * (0.5 + 0.5 * k)),
+           let player = try? engine.makePlayer(with: pattern) {
+            try? player.start(atTime: CHHapticTimeImmediate)
+        }
+    }
+
+    /// Spring-damped jolts (ω ≈ 16 rad/s, ζ ≈ 0.45) in seat space.
+    private func stepImpulses(_ dt: Float) {
+        let w: Float = 16, z: Float = 0.45
+        let n = max(1, Int(dt / 0.004))
+        let h = dt / Float(n)
+        for _ in 0..<n {
+            impulseVel += (-w * w * impulseOffset - 2 * z * w * impulseVel) * h
+            impulseOffset += impulseVel * h
+            impulseTiltVel += (-w * w * impulseTilt - 2 * z * w * impulseTiltVel) * h
+            impulseTilt += impulseTiltVel * h
+        }
+        impulseOffset = simd_clamp(impulseOffset, Vec3(repeating: -0.08), Vec3(repeating: 0.08))
+        impulseTilt = simd_clamp(impulseTilt, Vec2(repeating: -0.12), Vec2(repeating: 0.12))
+    }
+
+    private func decayEventEffects(_ dt: Float) {
+        shock *= expf(-dt / 0.35)
+        embers *= expf(-dt / 2.5)
+        smoke *= expf(-dt / 4.5)
+        debrisFx *= expf(-dt / 0.7)
+        hitFx *= expf(-dt / 0.18)
+        flashPulse *= expf(-dt / 0.08)
     }
 
     /// On-device clock-synchronized virtual cinema cues. With protected YouTube

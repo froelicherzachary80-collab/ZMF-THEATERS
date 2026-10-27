@@ -108,6 +108,8 @@ final class PlaybackEngine: ObservableObject {
     @Published var volume: Float = 1 { didSet { player.volume = volume } }
 
     private(set) var videoOutput: AVPlayerItemVideoOutput?
+    /// Soundtrack analyser for real-time 4DX events (nil when unavailable).
+    private(set) var audioTap: AudioFeatureTap?
     private(set) var context: Context?
     private var cues: [SubtitleCue] = []
     private var timeObserver: Any?
@@ -183,6 +185,15 @@ final class PlaybackEngine: ObservableObject {
 
     private func load(asset: AVURLAsset, startAt: Double?) async throws {
         let item = AVPlayerItem(asset: asset)
+        // Real-time soundtrack analysis for 4DX (direct-play files only;
+        // HLS transcodes expose no tappable audio track).
+        let tap = AudioFeatureTap()
+        if let track = try? await asset.loadTracks(withMediaType: .audio).first, let mix = tap.makeMix(for: track) {
+            item.audioMix = mix
+            audioTap = tap
+        } else {
+            audioTap = nil
+        }
         let output = AVPlayerItemVideoOutput(pixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
             kCVPixelBufferMetalCompatibilityKey as String: true,
@@ -264,6 +275,7 @@ final class PlaybackEngine: ObservableObject {
         player.pause()
         player.replaceCurrentItem(with: nil)
         videoOutput = nil
+        audioTap = nil
         context = nil
         started = false
         cues = []

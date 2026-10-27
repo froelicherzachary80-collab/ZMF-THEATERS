@@ -45,6 +45,9 @@ final class Renderer {
     private let compositePipeline: MTLRenderPipelineState
     private let averagePipeline: MTLComputePipelineState
     private let anaglyphPipeline: MTLComputePipelineState
+    private let motionPipeline: MTLComputePipelineState
+    private let motionGrid: MTLBuffer
+    private var motionGridValid = false
     /// ZMF DepthCinema AI (created on first 3D screening — loading the model takes a moment).
     private(set) lazy var depth = DepthEngine()
     private var depthMap: MTLTexture?
@@ -132,6 +135,11 @@ final class Renderer {
         guard let anaFn = library.makeFunction(name: "anaglyph_convert"),
               let ana = try? device.makeComputePipelineState(function: anaFn) else { return nil }
         self.anaglyphPipeline = ana
+        guard let motFn = library.makeFunction(name: "motion_grid"),
+              let mot = try? device.makeComputePipelineState(function: motFn),
+              let grid = device.makeBuffer(length: MemoryLayout<Float>.stride * 32 * 18, options: .storageModeShared) else { return nil }
+        self.motionPipeline = mot
+        self.motionGrid = grid
 
         // Additive light volume for the projector beam.
         pd.label = "ZMF Projector Beam"
@@ -281,6 +289,15 @@ final class Renderer {
         convertTo3DIfNeeded(cmd, session: session)
         let activeScreen = activeScreenTexture(session: session)
         apply4DX(session: session, game: game, dt: dt)
+        // Fine luminance grid of the film frame for next frame's motion tracking.
+        if fourDX.running, session.phase == .feature, let video = videoTexture, let enc = cmd.makeComputeCommandEncoder() {
+            enc.setComputePipelineState(motionPipeline)
+            enc.setTexture(video, index: 0)
+            enc.setBuffer(motionGrid, offset: 0, index: 0)
+            enc.dispatchThreadgroups(MTLSize(width: 4, height: 3, depth: 1), threadsPerThreadgroup: MTLSize(width: 8, height: 6, depth: 1))
+            enc.endEncoding()
+            motionGridValid = true
+        } else { motionGridValid = false }
 
         // Screen glow: average the image currently on the active screen.
         if let tex = activeScreen, let enc = cmd.makeComputeCommandEncoder() {
@@ -413,8 +430,11 @@ final class Renderer {
         let fxK = Float(max(0, min(1, settings.fourDXAtmosphereStrength))) * 1.4
         let shake = fxOn ? Vec2(sinf(game.time * 61) , cosf(game.time * 53)) * fourDX.rumble * 0.0035 : .zero
         let fx = fxOn ? Vec4(min(1, fourDX.water * fxK), min(1, fourDX.wind * fxK), fourDX.flash, settings.fourDXVirtualMist ? fourDX.mist * fxK * 0.5 : 0) : .zero
-        let fx2 = Vec4(aspect, game.time.truncatingRemainder(dividingBy: 600), shake.x, shake.y)
-        postPass(cmd, target: drawable.texture, pipeline: compositePipeline, textures: [hdr, bloomOn ? bloomA : black], params: &comp, extra: [fx, fx2])
+        let jolt = fxOn ? Vec2(fourDX.seatTilt.y, fourDX.seatTilt.x) * fourDX.hitFx * 0.02 : .zero
+        let fx2 = Vec4(aspect, game.time.truncatingRemainder(dividingBy: 600), shake.x + jolt.x, shake.y + jolt.y)
+        let fx3 = fxOn ? Vec4(fourDX.shock, fourDX.embers * fxK, fourDX.smoke * fxK * 0.8, fourDX.debrisFx) : .zero
+        let fx4 = fxOn ? Vec4(fourDX.hitFx, 0, 0, 0) : .zero
+        postPass(cmd, target: drawable.texture, pipeline: compositePipeline, textures: [hdr, bloomOn ? bloomA : black], params: &comp, extra: [fx, fx2, fx3, fx4])
 
         cmd.present(drawable)
         cmd.commit()
@@ -653,6 +673,12 @@ final class Renderer {
                 part(i, kind: 1, intensity: fourDX.ash * strength, tint: Vec4(0.53, 0.43, 0.37, 1))
             }
         }
+        // Embers from detected booms drift through the auditorium.
+        if fourDX.embers > 0.1 {
+            for i in 0..<20 {
+                part(i + 40, kind: 1, intensity: fourDX.embers * max(0.5, strength), tint: Vec4(1, 0.45, 0.12, 1))
+            }
+        }
         // Mist/fog volume comes from the existing shader's smooth distance haze.
         // A handful of faint light flecks makes the mist visible near projectors.
         if settings.fourDXVirtualMist && fourDX.mist > 0.18 {
@@ -765,9 +791,13 @@ final class Renderer {
             fourDX.updateTrailerPreview(dt: dt, timestamp: session.youtubeTime,
                                        intensity: Float(settings.fourDXIntensity), seatForward: forward)
         } else {
+            let fine = feature4DX && motionGridValid
+                ? UnsafeBufferPointer(start: motionGrid.contents().bindMemory(to: Float.self, capacity: 32 * 18), count: 32 * 18) : nil
+            let audio = feature4DX ? (session.feature.audioTap?.drain() ?? []) : []
             fourDX.update(grid: feature4DX ? UnsafePointer(grid) : nil, dt: dt,
                           intensity: Float(settings.fourDXIntensity), seatForward: forward,
-                          timestamp: session.feature.player.currentTime().seconds)
+                          timestamp: session.feature.player.currentTime().seconds,
+                          fineGrid: fine, audio: audio)
         }
         let travel = Float(max(0, min(1.5, settings.fourDXSeatTravel)))
         game.seatMotion = (fourDX.seatOffset * travel, fourDX.seatTilt * travel)

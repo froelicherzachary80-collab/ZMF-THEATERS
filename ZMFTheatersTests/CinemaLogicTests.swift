@@ -278,5 +278,76 @@ final class CinemaLogicTests: XCTestCase {
         let seat = CinemaWorld.seatPosition(room: 9, row: 4, seat: 3)
         XCTAssertEqual(CinemaWorld.zone(at: Vec2(seat.x, seat.z)), .room(9))
     }
-}
 
+    // MARK: Real-time 4DX (synthetic signals only — not movie content)
+
+    private struct SeededRNG: RandomNumberGenerator {
+        var state: UInt64 = 0x9E37_79B9_7F4A_7C15
+        mutating func next() -> UInt64 { state = state &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407; return state }
+    }
+
+    private func synth(_ seconds: Double, _ f: (Double) -> Float) -> [Float] {
+        (0..<Int(seconds * 48_000)).map { f(Double($0) / 48_000) }
+    }
+
+    private func dialogue(_ t: Double) -> Float {
+        Float(0.08 * sin(2 * .pi * 220 * t) * (0.5 + 0.5 * sin(2 * .pi * 4 * t)) +
+              0.08 * sin(2 * .pi * 660 * t) * (0.5 + 0.5 * sin(2 * .pi * 3.3 * t)))
+    }
+
+    private func events(_ pcm: [Float], sensitivity: Float = 1) -> [FourDXDetectedEvent] {
+        var c = FourDXSoundClassifier(sensitivity: sensitivity)
+        return fourDXAudioChunks(mono: pcm, sampleRate: 48_000).flatMap { c.feed($0) }
+    }
+
+    func testDialogueAndMusicBeatsCreateNoEvents() {
+        XCTAssertTrue(events(synth(6, dialogue), sensitivity: 2).isEmpty)
+        let music = synth(6) { t in self.dialogue(t) + Float(0.25 * exp(-(t.truncatingRemainder(dividingBy: 0.5)) * 20) * sin(2 * .pi * 80 * t)) }
+        XCTAssertFalse(events(music, sensitivity: 2).contains { $0.kind == .boom }, "kick drums are rhythm, not explosions")
+    }
+
+    func testBoomThenDebrisAndSharpHits() {
+        var rng = SeededRNG()
+        var pcm = synth(6) { t in self.dialogue(t) + (t > 3 ? Float(0.6 * exp(-(t - 3) * 3) * sin(2 * .pi * 50 * (t - 3))) : 0) }
+        for k in 0..<8 { let st = Int((3.35 + Double(k) * 0.13) * 48_000); for i in 0..<96 { pcm[st + i] += Float.random(in: -0.5...0.5, using: &rng) * (1 - Float(i) / 96) } }
+        let e = events(pcm)
+        let boom = e.first { $0.kind == .boom }
+        XCTAssertNotNil(boom)
+        XCTAssertEqual(boom?.time ?? 0, 3.15, accuracy: 0.1)
+        XCTAssertGreaterThanOrEqual(e.filter { $0.kind == .debris }.count, 4)
+        XCTAssertFalse(e.contains { $0.kind == .sharpHit }, "crackle after a blast is debris")
+
+        var hits = synth(6, dialogue)
+        for at in [2.0, 4.0] { let st = Int(at * 48_000); for i in 0..<240 { hits[st + i] += Float.random(in: -0.7...0.7, using: &rng) * (1 - Float(i) / 240) } }
+        XCTAssertEqual(events(hits).filter { $0.kind == .sharpHit }.count, 2)
+    }
+
+    private func pattern(_ x: Float, _ y: Float) -> Float {
+        0.5 + 0.2 * sinf(x * 0.9 + 1.3 * sinf(y * 0.4)) + 0.15 * sinf(y * 1.1 + x * 0.3) + 0.1 * sinf(x * 2.3 - y * 1.7)
+    }
+
+    private func motion(_ map: (Int, Float, Float) -> (Float, Float)) -> FourDXMotionSample? {
+        var tracker = FourDXMotionTracker()
+        var last: FourDXMotionSample?
+        for f in 0..<6 {
+            var g = [Float](repeating: 0, count: 32 * 18)
+            for y in 0..<18 { for x in 0..<32 { let (u, v) = map(f, Float(x) + 0.5 - 16, Float(y) + 0.5 - 9); g[y * 32 + x] = pattern(u, v) } }
+            if let s = g.withUnsafeBufferPointer({ tracker.analyse($0) }) { last = s }
+        }
+        return last
+    }
+
+    func testMotionTrackerReadsPanTiltZoomAndRoll() {
+        let pan = motion { f, x, y in (x + Float(f) * 0.6, y) }
+        XCTAssertGreaterThan(pan?.flow.x ?? 0, 0.4)
+        let tilt = motion { f, x, y in (x, y + Float(f) * 0.4) }
+        XCTAssertGreaterThan(tilt?.flow.y ?? 0, 0.2)
+        let push = motion { f, x, y in (x / powf(1.04, Float(f)), y / powf(1.04, Float(f))) }
+        XCTAssertGreaterThan(push?.zoom ?? 0, 0.08)
+        let pull = motion { f, x, y in (x * powf(1.04, Float(f)), y * powf(1.04, Float(f))) }
+        XCTAssertLessThan(pull?.zoom ?? 0, -0.08)
+        let rot = motion { f, x, y in let a = -Float(f) * 2 * .pi / 180; return (x * cosf(a) - y * sinf(a), x * sinf(a) + y * cosf(a)) }
+        XCTAssertGreaterThan(rot?.roll ?? 0, 0.05)
+        XCTAssertNil(motion { _, x, y in (x, y) }, "a still picture produces no motion")
+    }
+}

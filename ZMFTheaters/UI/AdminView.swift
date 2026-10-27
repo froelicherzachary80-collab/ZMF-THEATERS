@@ -464,7 +464,7 @@ struct FourDXAdminView: View {
             }
             Section("Effects") {
                 VStack(alignment: .leading) {
-                    Text("Intensity: \(Int(settingsStore.settings.fourDXIntensity * 100))%")
+                    Text("Intensity & motion sensitivity: \(Int(settingsStore.settings.fourDXIntensity * 100))%")
                     Slider(value: $settingsStore.settings.fourDXIntensity, in: 0...1)
                 }
                 Toggle("iPhone haptics (Taptic Engine rumble)", isOn: $settingsStore.settings.fourDXHaptics)
@@ -486,7 +486,7 @@ struct FourDXAdminView: View {
                     Text("Atmosphere intensity: \(Int(settingsStore.settings.fourDXAtmosphereStrength * 100))%")
                     Slider(value: $settingsStore.settings.fourDXAtmosphereStrength, in: 0...1)
                 }
-                Text("Atmospheres cycle automatically as a *simulated demonstration*. They are not yet detected from individual film scenes. No real mist, snow or smoke hardware is activated.")
+                Text("Films: the chair follows the picture's camera motion in real time (pans bank, tilts pitch, push-ins surge, shake vibrates), and the soundtrack is analysed live for sharp hits (stabs, punches, shots), booms (explosions) and debris, each with its own haptics, jolts, shockwave, embers and smoke. At 100% intensity it is very motion-sensitive. Sound analysis needs a direct-play file; transcoded streams use picture motion only. Sounds are classified acoustically, so a punch and a stab feel alike. Presentations and YouTube use the player clock. No physical mist, snow or smoke hardware is activated.")
                     .font(.caption2).foregroundStyle(.secondary)
                 Stepper("4DX ticket: Z$\(settingsStore.settings.fourDXPrice)", value: $settingsStore.settings.fourDXPrice, in: 0...2000, step: 25)
             }

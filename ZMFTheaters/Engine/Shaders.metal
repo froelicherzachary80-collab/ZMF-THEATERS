@@ -274,10 +274,21 @@ fragment float4 composite(PostOut in [[stage_in]],
                           texture2d<float> bloom [[texture(1)]],
                           constant float4 &params [[buffer(0)]],
                           constant float4 &fx [[buffer(1)]],
-                          constant float4 &fx2 [[buffer(2)]]) {
+                          constant float4 &fx2 [[buffer(2)]],
+                          constant float4 &fx3 [[buffer(3)]],
+                          constant float4 &fx4 [[buffer(4)]]) {
     // fx = (water, wind, flash, mist); fx2 = (aspect, time, shakeX, shakeY)
+    // fx3 = (shockwave, embers, smoke, debris); fx4 = (hit, -, -, -)
     constexpr sampler s(filter::linear, address::clamp_to_edge);
     float2 uv = in.uv + fx2.zw;
+    // Explosion shockwave: a refracting ring expanding from the centre.
+    if (fx3.x > 0.01) {
+        float2 p = (uv - 0.5) * float2(fx2.x, 1.0);
+        float d = length(p);
+        float r = (1.0 - fx3.x) * 1.1;
+        float ring = exp(-(d - r) * (d - r) / 0.0025);
+        uv -= normalize(p + 1e-5) / float2(fx2.x, 1.0) * ring * 0.025 * fx3.x;
+    }
     float3 drops = float3(0);
     if (fx.x > 0.01) {
         drops += dropLayer(uv, fx2.x, 7.0, fx2.y, fx.x);
@@ -300,6 +311,38 @@ fragment float4 composite(PostOut in [[stage_in]],
         float edge = smoothstep(0.15, 0.5, abs(uv.x - 0.5) + abs(uv.y - 0.5) * 0.6);
         c += streak * edge * fx.y * 0.22 * step(0.55, hr);
     }
+    // Smoke haze rolling up from the bottom after a blast.
+    if (fx3.z > 0.01) {
+        float n = fxHash(floor(uv * float2(24.0, 14.0) + float2(fx2.y * 0.6, fx2.y * -0.3)));
+        float body = smoothstep(0.15, 1.0, uv.y) * (0.75 + 0.25 * n);
+        c = mix(c, float3(0.16, 0.15, 0.14) + c * 0.2, saturate(fx3.z) * 0.4 * body);
+    }
+    // Embers drifting up through the view.
+    if (fx3.y > 0.01) {
+        float2 g = float2(uv.x * fx2.x, uv.y + fx2.y * 0.18) * 18.0;
+        float2 id = floor(g), f = fract(g) - 0.5;
+        float h = fxHash(id + 9.1);
+        float2 off = float2(fxHash(id + 2.3) - 0.5, fxHash(id + 5.7) - 0.5) * 0.6 + float2(sin(fx2.y * 2.0 + h * 30.0) * 0.12, 0);
+        float spark = smoothstep(0.09, 0.0, length(f - off)) * step(1.0 - fx3.y * 0.5, h);
+        c += spark * float3(1.0, 0.45, 0.12) * 2.2 * (0.6 + 0.4 * sin(fx2.y * 9.0 + h * 40.0));
+    }
+    // Debris: dark fragments and hot sparks flung outward from the centre.
+    if (fx3.w > 0.01) {
+        float2 p = (uv - 0.5) * float2(fx2.x, 1.0);
+        float ang = atan2(p.y, p.x);
+        float sector = floor(ang * 9.0);
+        float hs = fxHash(float2(sector, 4.0));
+        float travel = fract(fx2.y * (1.2 + hs * 1.5) + hs);
+        float rad = length(p);
+        float chunk = smoothstep(0.03, 0.0, abs(rad - travel * 0.9)) * smoothstep(0.08, 0.0, abs(fract(ang * 9.0) - 0.5) - 0.38);
+        float hot = step(0.7, hs);
+        c = mix(c, mix(float3(0.05, 0.04, 0.03), float3(1.4, 0.7, 0.25), hot), chunk * saturate(fx3.w) * step(0.35, hs));
+    }
+    // Sharp hit: the view tightens for an instant.
+    if (fx4.x > 0.01) {
+        float2 dvig = in.uv - 0.5;
+        c *= 1.0 - fx4.x * 0.4 * smoothstep(0.25, 0.75, length(dvig * float2(1.0, 0.8)));
+    }
     c += fx.z * float3(1.0, 0.96, 0.9);
     c = aces(c);
     float2 d = in.uv - 0.5;
@@ -307,6 +350,23 @@ fragment float4 composite(PostOut in [[stage_in]],
     float n = fract(sin(dot(in.uv * 1000.0 + params.z, float2(12.9898, 78.233))) * 43758.5453);
     c += (n - 0.5) * params.y;
     return float4(saturate(c), 1.0);
+}
+
+// 32×18 luminance grid of the film frame for real-time 4DX camera-motion
+// tracking (2×2 taps per cell to limit aliasing).
+kernel void motion_grid(texture2d<float> tex [[texture(0)]],
+                        device float *out [[buffer(0)]],
+                        uint2 gid [[thread_position_in_grid]]) {
+    if (gid.x >= 32 || gid.y >= 18) return;
+    constexpr sampler s(filter::linear, address::clamp_to_edge);
+    float l = 0.0;
+    for (int j = 0; j < 2; j++) {
+        for (int i = 0; i < 2; i++) {
+            float2 uv = (float2(gid) + (float2(i, j) + 0.5) / 2.0) / float2(32.0, 18.0);
+            l += dot(tex.sample(s, uv, level(0)).rgb, float3(0.2126, 0.7152, 0.0722));
+        }
+    }
+    out[gid.y * 32 + gid.x] = l * 0.25;
 }
 
 // Average colour of the current screen image (8x8 taps, one threadgroup),

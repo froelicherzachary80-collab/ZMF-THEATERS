@@ -342,6 +342,7 @@ final class AppModel: ObservableObject {
 
     /// 3D conversion state shown in the screening controls.
     var stereoStatus: String? { renderer?.stereoStatus(for: session) }
+    var fourDXStatus: String? { renderer.map { "4DX · " + $0.fourDX.statusLine } }
 
     func standUp() {
         game.stand()
