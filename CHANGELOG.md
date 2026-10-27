@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased: Real-time 4DX from the film (2026-10-27)
+
+### Added
+- **Real-time chair motion from the picture** (iPhone and Windows). The camera motion is tracked on a 32×18 luminance grid (9× more cells than the old 8×8 grid) with sub-cell precision:
+  - pans bank the chair
+  - tilts pitch it
+  - push-ins and pull-outs surge it
+  - camera roll rolls it
+  - handheld shake vibrates it
+- **At 100% intensity the chair is very motion-sensitive**: about 3× the 50% response, faster and with wider travel. The intensity slider is now "Intensity & motion sensitivity" (Windows: Presentations → Real-time 4DX).
+- **Real-time soundtrack events**:
+  - **Sharp hits** (stab / punch / gunshot-like), **booms** (explosion-like blasts, stronger when the picture flashes at the same moment) and **debris** (the crackle after a boom).
+  - Music beats, dialogue and steady engine noise are ignored.
+  - iPhone reads the film's own audio (direct-play files). Windows listens to the PC's audio output.
+- **Better phone haptics**: a hard double strike for hits, a heavy thump with a rolling decay for booms, an uneven patter for debris, and a stronger continuous rumble.
+- **TactSuit Air event patterns** (Windows): booms fill the vest front and back, hits are a tight chest strike, debris is a scatter of dots.
+- **More virtual effects**:
+  - a refracting shockwave ring
+  - embers drifting up the view and through the auditorium
+  - smoke haze that lingers after blasts
+  - debris fragments and hot sparks flung outward
+  - a vignette snap on hits
+  - spring-damped seat jolts
+  - camera roll on Windows
+
+### Notes
+- Sounds are classified acoustically, so a stab and a punch feel alike. There is no scene understanding.
+- Brightness alone never creates an effect.
+- Transcoded (HLS) streams on iPhone don't expose audio, so they use picture motion only.
+
 ## 0.4.2: Roller-coaster intro, 4DX screen effects, YouTube presentations, recline fix (2026-10-27)
 
 ### Added
