@@ -32,6 +32,7 @@ public static class HomeSelfTest
             Timeline(Check);
             await MockPlugEndToEnd(Check);
             await PowerChain(Check);
+            await StaleOnCancellation(Check);
             await HostEndToEnd(Check);
             await IdleSafety(Check);
         }
@@ -314,6 +315,26 @@ public static class HomeSelfTest
         hub.Tick(0.1);
         await WaitFor(() => !plug.On);
         Check(!plug.On, "[safety] when playback goes silent the automated fan turns off by itself");
+    }
+
+    // Rapid pause or emergency must undo automatic ON still in flight.
+    static async Task StaleOnCancellation(Action<bool, string> Check)
+    {
+        var cfg = new HomeConfig { PhysicalEnabled = true };
+        await using var ctl = new HomeController(cfg, () => { });
+        var fan = new MockPlug { DelayMs = 170 };
+        ctl.UseMocks(fan);
+        var current = new DateTime(2026, 10, 27, 23, 0, 0, DateTimeKind.Utc);
+        ctl.Clock = () => current;
+        var director = new SceneDirector();
+        for (double sec = 0; sec < 6; sec += 0.1)
+            director.Update(In(sec, wind: 0.95, speed: 0.75, low: 0.65), 0.1);
+        ctl.Apply(director, 6);
+        await Task.Delay(40); // ON submitted, but slow device has not replied
+        await ctl.SuspendAsync("paused before ON acknowledgement");
+        await Task.Delay(750); // ON completes, then stale-command compensation OFF completes
+        Check(!fan.On && fan.Commands >= 2,
+            "[safety/mock] pause during in-flight automatic ON is followed by compensating OFF");
     }
 
     // MARK: TAPO_02 -> Govee power-chain, all simulated

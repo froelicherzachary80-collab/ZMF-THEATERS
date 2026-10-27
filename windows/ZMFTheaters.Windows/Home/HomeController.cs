@@ -39,8 +39,14 @@ public sealed class MockPlug : IPlugTransport
     public bool On { get; private set; }
     public int Commands { get; private set; }
     public bool Fail { get; set; }
+    public int DelayMs { get; set; } // simulate a slow Tapo response / in-flight ON
     public Task<TapoInfo> GetInfoAsync(CancellationToken ct) => Fail ? throw new TapoException("mock unreachable") : Task.FromResult(new TapoInfo(On, "MOCK-P125M", "Mock plug", "00:00:00:00:00:00", "mock", "mock", -40));
-    public Task SetOnAsync(bool on, CancellationToken ct) { if (Fail) throw new TapoException("mock unreachable"); On = on; Commands++; return Task.CompletedTask; }
+    public async Task SetOnAsync(bool on, CancellationToken ct)
+    {
+        if (DelayMs > 0) await Task.Delay(DelayMs, ct);
+        if (Fail) throw new TapoException("mock unreachable");
+        On = on; Commands++;
+    }
     public bool IsMock => true;
     public void Dispose() { }
 }
