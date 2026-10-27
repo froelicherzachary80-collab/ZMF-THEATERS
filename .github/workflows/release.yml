@@ -1,0 +1,65 @@
+name: Windows release (tag)
+
+# Publishes a GitHub release only for a v*-preview tag, and only after the
+# Windows build, smoke test, 3D, 4DX and Home 4DX tests pass on that tag.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    name: Build, test and publish release
+    runs-on: windows-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish single-file exe
+        run: >
+          dotnet publish windows/ZMFTheaters.Windows/ZMFTheaters.Windows.csproj -c Release -r win-x64 --self-contained true
+          -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true -p:IncludeNativeLibrariesForSelfExtract=true
+          -p:EnableCompressionInSingleFile=true -o out/single
+
+      - name: Publish portable folder
+        run: >
+          dotnet publish windows/ZMFTheaters.Windows/ZMFTheaters.Windows.csproj -c Release -r win-x64 --self-contained true
+          -o out/ZMFTheaters-Windows
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path out/ZMFTheaters-Windows/* -DestinationPath ZMFTheaters-Windows-x64.zip
+          Copy-Item out/single/ZMFTheaters.exe ZMFTheaters.exe
+
+      - name: Acceptance tests (software only — mock devices)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "out/ZMFTheaters-Windows/ZMFTheaters.exe" -PassThru
+          Start-Sleep -Seconds 12
+          if ($p.HasExited) { throw "app exited early ($($p.ExitCode))" }
+          Stop-Process -Id $p.Id -Force
+          foreach ($t in @(@("--selftest-3d","selftest.txt"), @("--selftest-4dx","fourdx-tests.txt"), @("--selftest-home","home4dx-tests.txt"))) {
+            $p = Start-Process -FilePath "out/ZMFTheaters-Windows/ZMFTheaters.exe" -ArgumentList $t[0],"$PWD/$($t[1])" -PassThru -Wait
+            Get-Content $t[1]
+            if ($p.ExitCode -ne 0) { throw "$($t[0]) failed: $($p.ExitCode)" }
+          }
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          NOTES="docs/RELEASE_NOTES_${TAG}.md"
+          [ -f "$NOTES" ] || NOTES=CHANGELOG.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — not overwriting."
+            exit 0
+          fi
+          gh release create "$TAG" ZMFTheaters.exe ZMFTheaters-Windows-x64.zip home4dx-tests.txt fourdx-tests.txt \
+            --prerelease --title "ZMF THEATERS+ V0.5.0 — HOME 4DX GENESIS (preview)" --notes-file "$NOTES"

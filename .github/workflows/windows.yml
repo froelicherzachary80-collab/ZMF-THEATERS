@@ -67,6 +67,13 @@ jobs:
           Get-Content fourdx-tests.txt
           if ($p.ExitCode -ne 0) { throw "4DX test failed: $($p.ExitCode)" }
 
+      - name: Home 4DX tests (MOCK devices — no physical hardware in CI)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "out/ZMFTheaters-Windows/ZMFTheaters.exe" -ArgumentList "--selftest-home","$PWD/home4dx-tests.txt" -PassThru -Wait
+          Get-Content home4dx-tests.txt
+          if ($p.ExitCode -ne 0) { throw "Home 4DX test failed: $($p.ExitCode)" }
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -74,6 +81,7 @@ jobs:
           path: |
             selftest.txt
             fourdx-tests.txt
+            home4dx-tests.txt
 
       - name: Render 3D cinema screenshots
         shell: pwsh
@@ -83,10 +91,16 @@ jobs:
             $p = Start-Process -FilePath "out/ZMFTheaters-Windows/ZMFTheaters.exe" -ArgumentList "--shot",$shot,"$PWD/shots/$shot.png" -PassThru
             if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; Write-Warning "$shot timed out" }
           }
+          $i = 0
+          foreach ($page in "Dashboard","Smart Device Discovery","Wind Controller","Lighting and Color Control","Private Cinema Rooms","PC + iPhone Companion","Testing Laboratory","Safety and Emergency Stop") {
+            $i++
+            $p = Start-Process -FilePath "out/ZMFTheaters-Windows/ZMFTheaters.exe" -ArgumentList "--shot-home","`"$page`"","$PWD/shots/home$i.png" -PassThru
+            if (-not $p.WaitForExit(60000)) { Stop-Process -Id $p.Id -Force; Write-Warning "$page timed out" }
+          }
           Get-ChildItem shots
 
       - name: Publish screenshots to the ci-screenshots-windows branch
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/claude/zmf-theaters-v0.1' || github.ref == 'refs/heads/feature/ios-v0.4.2-youtube-cinema-browser')
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/claude/zmf-theaters-v0.1' || github.ref == 'refs/heads/feature/ios-v0.4.2-youtube-cinema-browser' || github.ref == 'refs/heads/feature/v0.5.0-home-4dx-genesis')
         shell: bash
         run: |
           cd shots
