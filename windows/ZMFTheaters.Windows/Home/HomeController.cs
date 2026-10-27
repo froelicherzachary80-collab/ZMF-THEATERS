@@ -96,6 +96,8 @@ public sealed class HomeController : IAsyncDisposable
     DateTime lastLightWrite = DateTime.MinValue;
     DateTime lightPowerReadyAt = DateTime.MinValue;
     bool lightWriteBusy;
+    int lightReconnectBusy;
+    DateTime nextLightReconnect = DateTime.MinValue;
 
     public HomeController(HomeConfig cfg, Action save)
     {
@@ -302,13 +304,37 @@ public sealed class HomeController : IAsyncDisposable
     /// after the colour test succeeded on this strip.
     public void RequestLight(LightTarget t, double mediaTime, string scene)
     {
-        if (EmergencyStopped || !cfg.PhysicalEnabled || cfg.VirtualOnly || light == null) return;
+        if (EmergencyStopped || !cfg.PhysicalEnabled || cfg.VirtualOnly) return;
+        if (cfg.Light.PowerOnly) return; // Tapo source ON/OFF only, no colour claims.
         // Power is sourced through TAPO_02. Never claim colour automation is
         // active while that plug is off, unverified, or not assigned.
         var source = cfg.Plugs.FirstOrDefault(p => p.IsLightPower);
         if (source == null || !Gate(source.Slot).IsOn || Clock() < lightPowerReadyAt) return;
         if (!SimulationMode && !source.LightPowerAutomationAllowed) return;
         if (!SimulationMode && (!cfg.Light.Authorized || !cfg.Light.ColorVerified)) return;
+        // Power cycling a light often drops Bluetooth pairing. If the exact
+        // strip was previously paired and verified, retry safely in the
+        // background after the source has finished rebooting.
+        if (light == null)
+        {
+            if (!SimulationMode && cfg.Light.Address != 0 &&
+                Clock() >= nextLightReconnect &&
+                Interlocked.CompareExchange(ref lightReconnectBusy, 1, 0) == 0)
+            {
+                nextLightReconnect = Clock().AddSeconds(15);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var attached = await ConnectLightAsync(cfg.Light.Address, CancellationToken.None);
+                        if (attached != null) lastLight = null;
+                    }
+                    catch { /* status is surfaced in diagnostics; retry later */ }
+                    finally { Interlocked.Exchange(ref lightReconnectBusy, 0); }
+                });
+            }
+            return;
+        }
         var now = Clock();
         if (lightWriteBusy || (now - lastLightWrite).TotalMilliseconds < 250) return;
         var bright = Math.Round(t.Brightness, 2);
@@ -361,7 +387,8 @@ public sealed class HomeController : IAsyncDisposable
                            d.State.StartsWith("Replaying ", StringComparison.Ordinal) ||
                            d.State == "ZMF ride timeline";
             bool allowedLight = !EmergencyStopped && cfg.PhysicalEnabled && !cfg.VirtualOnly &&
-                                (SimulationMode || (stripSource.LightPowerAutomationAllowed && cfg.Light.Authorized && cfg.Light.ColorVerified));
+                                (SimulationMode || (stripSource.LightPowerAutomationAllowed &&
+                                    (cfg.Light.PowerOnly || (cfg.Light.Authorized && cfg.Light.ColorVerified))));
             if (playing && allowedLight && !sourceGate.IsOn && plugs.ContainsKey(stripSource.Slot))
                 _ = SendPlugAsync(stripSource.Slot, true, "analysed film: Govee power", CancellationToken.None,
                     false, false, mediaTime, d.SceneConfidence, d.Scene);

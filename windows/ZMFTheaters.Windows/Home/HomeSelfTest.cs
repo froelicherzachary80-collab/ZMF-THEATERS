@@ -330,6 +330,10 @@ public static class HomeSelfTest
         Check(!supply.LightPowerAutomationAllowed, "[power chain] unverified Govee power restore blocks real automation");
         supply.LightPowerRestoreVerified = true;
         Check(supply.LightPowerAutomationAllowed, "[power chain] confirmed strip power restart arms its source");
+        cfg.Light.PowerOnly = true;
+        Check(cfg.Light.PowerOnly && supply.LightPowerAutomationAllowed,
+            "[power chain] safe power-only fallback is available without RGB Bluetooth control");
+        cfg.Light.PowerOnly = false;
         supply.Essential = true;
         Check(!supply.LightPowerAutomationAllowed, "[power chain] essential-device override always blocks source");
         supply.Essential = false;

@@ -80,6 +80,9 @@ public sealed class HomeLight
     /// The user saw the strip change blue → green → red in the colour test.
     public bool ColorVerified { get; set; }
     public bool Authorized { get; set; }
+    /// Fallback when this exact model's Bluetooth colours are unsupported:
+    /// Tapo supplies on/off only. No scene-colour claims.
+    public bool PowerOnly { get; set; }
 }
 
 public enum EffectLevel { Gentle, Standard, Intense, Extreme }

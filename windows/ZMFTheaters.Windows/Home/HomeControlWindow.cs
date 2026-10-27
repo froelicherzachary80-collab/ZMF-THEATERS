@@ -372,6 +372,10 @@ public sealed class HomeControlWindow : Window
         }
         p.Children.Add(Ui.Card(
             Ui.P("Govee publishes no local Bluetooth API. ZMF uses community-documented packets, which differ between models. Each test turns the strip blue → green → red; you confirm what you saw. Automatic lighting stays off until a test is confirmed.", Ui.Dim, 12),
+            Ui.Check("Use Tapo power-only lighting (if my Govee model cannot use BLE colours)", l.PowerOnly,
+                v => { l.PowerOnly = v; save(); }),
+            Ui.P(l.PowerOnly ? "POWER ONLY: Tapo turns the Govee adapter on for a film and off on pause/stop. Colours do NOT follow scenes in this mode." :
+                "SCENE COLOURS: Bluetooth commands follow video analysis AFTER Tapo reports source power on. Requires a verified BLE colour test.", Ui.Amber, 12),
             Ui.Row(Ui.Btn("Connect via Bluetooth", async (_, _) =>
             {
                 if (l.Address == 0) { Ui.Tell(this, "Govee", "Select a strip in Smart Device Discovery first."); return; }
