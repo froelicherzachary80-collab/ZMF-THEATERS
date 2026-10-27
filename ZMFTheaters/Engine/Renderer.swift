@@ -464,7 +464,12 @@ final class Renderer {
             if let key = b.key.texture {
                 textured = 1
                 if mode == ShadingMode.screen.rawValue, let rid = roomId {
-                    if rid == activeRoom, let active = activeScreen {
+                    if youtubeCinema?.isOpen == true && rid == activeRoom {
+                        // The native WKWebView is world-anchored exactly on top
+                        // of this screen. Hide old static signage beneath it.
+                        texture = black
+                        emissive = 0.15
+                    } else if rid == activeRoom, let active = activeScreen {
                         texture = active
                         contentAspect = Float(active.width) / Float(max(1, active.height))
                     } else if let idle = textures[key] {
