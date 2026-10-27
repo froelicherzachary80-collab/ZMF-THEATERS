@@ -94,6 +94,7 @@ public sealed class HomeController : IAsyncDisposable
     public static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(4);
     (byte r, byte g, byte b, double bright)? lastLight;
     DateTime lastLightWrite = DateTime.MinValue;
+    DateTime lightPowerReadyAt = DateTime.MinValue;
     bool lightWriteBusy;
 
     public HomeController(HomeConfig cfg, Action save)
@@ -228,7 +229,17 @@ public sealed class HomeController : IAsyncDisposable
             st.LatencyMs = ms; st.ReportedOn = info.On; st.LastSeen = Clock(); st.LastError = "";
             var ok = info.On == on;
             st.LastAck = ok ? $"plug reports {(info.On ? "ON" : "OFF")}" : $"plug reports {(info.On ? "ON" : "OFF")} (mismatch)";
-            if (ok) Gate(slot).Commit(on, Clock());
+            if (ok)
+            {
+                Gate(slot).Commit(on, Clock());
+                if (p.IsLightPower)
+                {
+                    // After a mains interruption the strip must reboot and BLE
+                    // needs time to reconnect. Always resend its current colour.
+                    lastLight = null;
+                    lightPowerReadyAt = on ? Clock().AddSeconds(3) : DateTime.MaxValue;
+                }
+            }
             Log(slot, on ? "ON" : "OFF", (t.IsMock ? "[SIMULATED] " : "") + st.LastAck, ms, mediaTime, confidence, scene, reason);
             return ok;
         }
@@ -295,7 +306,7 @@ public sealed class HomeController : IAsyncDisposable
         // Power is sourced through TAPO_02. Never claim colour automation is
         // active while that plug is off, unverified, or not assigned.
         var source = cfg.Plugs.FirstOrDefault(p => p.IsLightPower);
-        if (source == null || !Gate(source.Slot).IsOn) return;
+        if (source == null || !Gate(source.Slot).IsOn || Clock() < lightPowerReadyAt) return;
         if (!SimulationMode && !source.LightPowerAutomationAllowed) return;
         if (!SimulationMode && (!cfg.Light.Authorized || !cfg.Light.ColorVerified)) return;
         var now = Clock();

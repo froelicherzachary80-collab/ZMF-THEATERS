@@ -11,6 +11,9 @@ final class Home4DXLink: ObservableObject {
     @Published private(set) var status = "Not connected"
     @Published private(set) var connected = false
     @Published private(set) var hostNote = ""
+    @Published private(set) var equipmentStatus = "Equipment status has not been refreshed."
+    @Published private(set) var physicalArmed = false
+    @Published private(set) var stopped = false
     private var token: String?
     private var base: URL?
     private var loop: Task<Void, Never>?
@@ -49,6 +52,7 @@ final class Home4DXLink: ObservableObject {
             token = t
             connected = true
             status = "Connected to \(url.host ?? "PC")"
+            await refreshEquipment()
         } catch {
             connected = false
             status = "Can't reach the PC: \(error.localizedDescription)"
@@ -78,7 +82,36 @@ final class Home4DXLink: ObservableObject {
         }
     }
 
-    func emergencyStop() async { await post("api/estop", [:]) }
+    func emergencyStop() async {
+        await post("api/estop", [:])
+        await refreshEquipment()
+    }
+
+    /// Read-only device dashboard; the PC remains the sole power controller.
+    func refreshEquipment() async {
+        guard let base, let token else { equipmentStatus = "Connect to the Windows 4DX host first."; return }
+        var req = URLRequest(url: base.appendingPathComponent("api/status"))
+        req.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
+        do {
+            let (data, response) = try await session.data(for: req)
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  let body = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                equipmentStatus = "Could not read equipment from Windows host."; return
+            }
+            physicalArmed = body["physicalEnabled"] as? Bool ?? false
+            stopped = body["emergencyStopped"] as? Bool ?? false
+            let devices = body["devices"] as? [[String: Any]] ?? []
+            equipmentStatus = devices.map { item in
+                let id = item["id"] as? String ?? "DEVICE"
+                let state = item["state"] as? String ?? "unknown"
+                let power = item["reportedOn"] as? Bool
+                let powerLabel = power == nil ? "unverified" : (power! ? "ON" : "OFF")
+                return "\(id): \(powerLabel) — \(state)"
+            }.joined(separator: "\n")
+        } catch {
+            equipmentStatus = "PC unreachable: \(error.localizedDescription)"
+        }
+    }
 
     private func post(_ path: String, _ body: [String: Any]) async {
         guard let base, let token else { return }
