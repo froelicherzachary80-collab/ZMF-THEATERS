@@ -105,6 +105,18 @@ final class MeshBuilder {
         box(c - s * 0.5, c + s * 0.5, color: color, mat: mat)
     }
 
+    /// Box along arbitrary orthonormal axes (track rails, rings, banked parts).
+    func orientedBox(center c: Vec3, x: Vec3, y: Vec3, z: Vec3, half h: Vec3, color: Vec4, mat: MaterialKey = .lit()) {
+        let ax = x * h.x, ay = y * h.y, az = z * h.z
+        func p(_ i: Float, _ j: Float, _ k: Float) -> Vec3 { c + ax * i + ay * j + az * k }
+        quad(p(-1, -1, 1), p(1, -1, 1), p(1, 1, 1), p(-1, 1, 1), normal: z, color: color, mat: mat)
+        quad(p(1, -1, -1), p(-1, -1, -1), p(-1, 1, -1), p(1, 1, -1), normal: -z, color: color, mat: mat)
+        quad(p(1, -1, 1), p(1, -1, -1), p(1, 1, -1), p(1, 1, 1), normal: x, color: color, mat: mat)
+        quad(p(-1, -1, -1), p(-1, -1, 1), p(-1, 1, 1), p(-1, 1, -1), normal: -x, color: color, mat: mat)
+        quad(p(-1, 1, 1), p(1, 1, 1), p(1, 1, -1), p(-1, 1, -1), normal: y, color: color, mat: mat)
+        quad(p(-1, -1, -1), p(1, -1, -1), p(1, -1, 1), p(-1, -1, 1), normal: -y, color: color, mat: mat)
+    }
+
     /// Upholstered/rounded look: three overlapping boxes, each inset on one
     /// axis by `r`, read as chamfered edges under the shading model.
     func cushion(_ mn: Vec3, _ mx: Vec3, r: Float, color: Vec4, mat: MaterialKey = .lit(rough: 0.82)) {

@@ -118,6 +118,24 @@ final class AppModel: ObservableObject {
                 updatePartyGuests(["Alex", "Sam"])
                 renderer?.carrying = (true, true)
             }
+        case "recline":
+            let item = MediaItem(serverAccountId: UUID(), itemId: "demo", kind: .movie, title: "Preshow Demo", year: 2026)
+            let ticket = Ticket(mediaId: item.id, title: item.title, roomId: 9, row: 5, seat: 3, showtime: nil, isPrivate: true, kind: .vip, price: 0, format: nil)
+            game.debugPlace(CinemaWorld.seatPosition(room: 9, row: 5, seat: 3), yaw: CinemaWorld.screenYaw(9), pitch: 0)
+            game.sit(room: 9, row: 5, seat: 3)
+            game.toggleRecline()
+            session.begin(ticket: ticket, item: item, resumeAt: nil, library: library, settings: settings)
+        case "coaster", "coasterseat":
+            // Jumps straight to the ZMF roller-coaster intro on a 4DX ticket.
+            let item = MediaItem(serverAccountId: UUID(), itemId: "demo", kind: .movie, title: "Coaster Demo", year: 2026)
+            let ticket = Ticket(mediaId: item.id, title: item.title, roomId: 9, row: 4, seat: 3, showtime: nil, isPrivate: true, kind: .vip, price: 0,
+                                format: .fourDX)
+            settingsStore.settings.coasterIntro = true
+            settingsStore.settings.coasterVoice = false
+            game.debugPlace(CinemaWorld.seatPosition(room: 9, row: 4, seat: 3), yaw: CinemaWorld.screenYaw(9), pitch: 0)
+            game.sit(room: 9, row: 4, seat: 3)
+            session.begin(ticket: ticket, item: item, resumeAt: nil, library: library, settings: settingsStore.settings)
+            session.debugJumpToIdent()
         case "seat3d":
             // Plays the first file in Documents/Trailers as a 3D-ticket feature.
             let files = (try? FileManager.default.contentsOfDirectory(at: JSONStore.trailersDirectory, includingPropertiesForKeys: nil)) ?? []

@@ -129,9 +129,9 @@ jobs:
           sleep 20
           xcrun simctl terminate "$UDID" com.zmf.theatersplus || true
           sleep 2
-          for shot in lobby hall room seat seatleft seat3d; do
+          for shot in lobby hall room seat seatleft seat3d recline coaster; do
             xcrun simctl launch "$UDID" com.zmf.theatersplus -zmfShot $shot -zmfDemoParty
-            if [ "$shot" = "seat3d" ]; then sleep 30; else sleep 10; fi
+            if [ "$shot" = "seat3d" ]; then sleep 30; elif [ "$shot" = "coaster" ]; then sleep 22; else sleep 10; fi
             xcrun simctl io "$UDID" screenshot "shots/$shot.png"
             xcrun simctl terminate "$UDID" com.zmf.theatersplus || true
             sleep 1
@@ -144,7 +144,7 @@ jobs:
           path: shots/*.png
 
       - name: Publish previews to the ci-screenshots branch
-        if: github.event_name == 'push' && github.ref == 'refs/heads/claude/zmf-theaters-v0.1'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/claude/zmf-theaters-v0.1' || github.ref == 'refs/heads/feature/ios-v0.4.2-youtube-cinema-browser')
         run: |
           mkdir -p previews
           for f in shots/*.png; do

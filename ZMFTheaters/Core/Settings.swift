@@ -42,6 +42,10 @@ struct AppSettings: Codable, Equatable {
     var maxTrailers = 3
     var introSeconds = 12
     var countdownSeconds = 10
+    /// Original ZMF THEATERS roller-coaster ride before the feature (with 4DX
+    /// seat motion for 4DX tickets and true stereo for 3D tickets).
+    var coasterIntro = true
+    var coasterVoice = true
     /// Official YouTube iframe previews (links only — no downloading).
     var youtubeTrailers: [PreshowYouTubeTrailer] = []
     var standardTrailersEnabled = true

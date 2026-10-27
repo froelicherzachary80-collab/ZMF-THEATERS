@@ -130,6 +130,13 @@ final class TheaterSession: ObservableObject {
         }
     }
 
+    /// CI/screenshot helper: show the ZMF presentation (roller coaster) now.
+    func debugJumpToIdent() {
+        runTask?.cancel()
+        phase = .ident
+        targetLights = 0.12
+    }
+
     func skipPreshow() {
         guard [.welcome, .trailer, .ident, .countdown].contains(phase) else { return }
         runTask?.cancel()
@@ -280,7 +287,7 @@ final class TheaterSession: ObservableObject {
 
                 phase = .ident
                 targetLights = 0.12
-                try await sleep(Double(settings.introSeconds))
+                try await sleep(settings.coasterIntro ? ZMFCoasterTrack.shared.duration : Double(settings.introSeconds))
 
                 phase = .countdown
                 targetLights = 0.06

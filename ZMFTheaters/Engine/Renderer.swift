@@ -52,6 +52,12 @@ final class Renderer {
     private var stereoTexture: MTLTexture?
     private(set) var stereoActive = false
     let fourDX = FourDXEngine()
+    /// ZMF roller-coaster intro (built on the first screening that uses it).
+    private lazy var coaster: CoasterScene? = CoasterScene(device: device, factory: factory)
+    private var coasterTexture: MTLTexture?
+    private(set) var coasterTime: Double = 0
+    private var coasterActive = false
+    let announcer = ZMFCoasterAnnouncer()
     private let depthState: MTLDepthStencilState
     private let depthReadState: MTLDepthStencilState
     private var depthTexture: MTLTexture?
@@ -271,6 +277,7 @@ final class Renderer {
         cmd.addCompletedHandler { _ in sem.signal() }
 
         let activeRoom = youtubeCinema?.isOpen == true ? game.seatedAt?.room : session.roomId
+        updateCoaster(cmd, session: session, dt: Double(dt))
         convertTo3DIfNeeded(cmd, session: session)
         let activeScreen = activeScreenTexture(session: session)
         apply4DX(session: session, game: game, dt: dt)
@@ -655,6 +662,21 @@ final class Renderer {
         }
     }
 
+    // MARK: Roller-coaster intro
+
+    private func updateCoaster(_ cmd: MTLCommandBuffer, session: TheaterSession, dt: Double) {
+        let want = session.showsIdent && settings.coasterIntro
+        if want && !coasterActive { coasterTime = 0; announcer.reset() }
+        if !want && coasterActive { announcer.reset(); coasterTexture = nil }
+        coasterActive = want
+        guard want else { return }
+        coasterTime += dt
+        announcer.enabled = settings.coasterVoice
+        announcer.update(time: coasterTime)
+        let stereo = session.ticket?.screeningFormat.usesDepth == true
+        coasterTexture = coaster?.render(cmd, time: coasterTime, stereo: stereo)
+    }
+
     // MARK: 3D conversion
 
     private func wants3D(_ session: TheaterSession) -> Bool {
@@ -717,7 +739,8 @@ final class Renderer {
             session.phase == .trailer && session.youtubeIsPlaying && settings.fourDXTrailersEnabled
         let youTube4DX = youtubeCinema?.isOpen == true && youtubeCinema?.format.uses4DX == true &&
             youtubeCinema?.playing == true && youtubeCinema?.preset != .off
-        let want = feature4DX || trailer4DX || youTube4DX
+        let ride4DX = coasterActive && session.ticket?.screeningFormat.uses4DX == true
+        let want = feature4DX || trailer4DX || youTube4DX || ride4DX
         if feature4DX, let ticket = session.ticket {
             fourDX.beginMedia(id: ticket.mediaId, duration: session.feature.duration)
         }
@@ -726,7 +749,14 @@ final class Renderer {
         if !want && fourDX.running { fourDX.stop() }
         let grid = screenAverage.contents().bindMemory(to: Vec4.self, capacity: 65).advanced(by: 1)
         let forward = game.seatedAt.map { forwardVector(yaw: CinemaWorld.screenYaw($0.room)) } ?? Vec3(0, 0, 1)
-        if youTube4DX, let youtubeCinema {
+        if ride4DX {
+            let cue = ZMFCoasterTrack.shared.seatCue(at: coasterTime)
+            let up = Vec3(0, 1, 0)
+            let right = simd_normalize(simd_cross(forward, up))
+            let offset = right * cue.offset.x + up * cue.offset.y - forward * cue.offset.z
+            fourDX.updateRide(dt: dt, offset: offset, tilt: cue.tilt, rumble: cue.rumble, wind: cue.wind,
+                              water: cue.water, flash: cue.flash, intensity: Float(settings.fourDXIntensity))
+        } else if youTube4DX, let youtubeCinema {
             fourDX.updateYouTubeCinema(dt: dt, timestamp: youtubeCinema.playbackTime,
                   intensity: Float(settings.fourDXIntensity), seatForward: forward,
                   preset: youtubeCinema.preset, bpm: youtubeCinema.bpm,
@@ -783,7 +813,7 @@ final class Renderer {
     private func activeScreenTexture(session: TheaterSession) -> MTLTexture? {
         guard session.isRunning else { return nil }
         if session.screenEngine != nil { return (stereoActive ? stereoTexture : nil) ?? videoTexture ?? black }
-        if session.showsIdent { return identTexture }
+        if session.showsIdent { return (settings.coasterIntro ? coasterTexture : nil) ?? identTexture }
         return slideTexture
     }
 }

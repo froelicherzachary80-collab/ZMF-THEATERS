@@ -205,7 +205,11 @@ struct PreshowAdminView: View {
                 Toggle("4DX / 4DX + 3D presentations (virtual motion)", isOn: $settingsStore.settings.fourDXTrailersEnabled)
                 Stepper("Welcome: \(settingsStore.settings.welcomeSeconds)s", value: $settingsStore.settings.welcomeSeconds, in: 3...120)
                 Stepper("Trailers: up to \(settingsStore.settings.maxTrailers)", value: $settingsStore.settings.maxTrailers, in: 0...6)
+                Toggle("ZMF roller-coaster intro", isOn: $settingsStore.settings.coasterIntro)
+                Toggle("Announcer voice", isOn: $settingsStore.settings.coasterVoice)
+                    .disabled(!settingsStore.settings.coasterIntro)
                 Stepper("ZMF presentation: \(settingsStore.settings.introSeconds)s", value: $settingsStore.settings.introSeconds, in: 3...60)
+                    .disabled(settingsStore.settings.coasterIntro)
                 Stepper("Countdown: \(settingsStore.settings.countdownSeconds)s", value: $settingsStore.settings.countdownSeconds, in: 3...30)
             }
             Section("YouTube trailer links") {
