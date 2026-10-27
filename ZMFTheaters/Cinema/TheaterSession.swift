@@ -229,7 +229,7 @@ final class TheaterSession: ObservableObject {
                 // embedded player. They remain on screen until end/skip/error.
                 // File trailers remain available as a fallback without a server.
                 let linked = settings.youtubeTrailers.filter {
-                    $0.presentation == .fourDX ? settings.fourDXTrailersEnabled : settings.standardTrailersEnabled
+                    $0.presentation.uses4DX ? settings.fourDXTrailersEnabled : settings.standardTrailersEnabled
                 }
                 let chosen = Array(linked.prefix(max(0, settings.maxTrailers)))
                 for candidate in chosen {

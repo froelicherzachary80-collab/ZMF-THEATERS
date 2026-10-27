@@ -401,13 +401,19 @@ final class Renderer {
             postPass(cmd, target: bloomA, pipeline: blurPipeline, textures: [bloomB], params: &v)
         }
         var comp = Vec4(bloomOn ? Float(settings.bloomStrength) : 0, settings.filmGrain ? 0.018 : 0, game.time.truncatingRemainder(dividingBy: 100), 0.35)
-        postPass(cmd, target: drawable.texture, pipeline: compositePipeline, textures: [hdr, bloomOn ? bloomA : black], params: &comp)
+        // 4DX screen layer only while you're seated in the active 4DX screening.
+        let fxOn = settings.fourDXScreenEffects && fourDX.running && game.isSeated
+        let fxK = Float(max(0, min(1, settings.fourDXAtmosphereStrength))) * 1.4
+        let shake = fxOn ? Vec2(sinf(game.time * 61) , cosf(game.time * 53)) * fourDX.rumble * 0.0035 : .zero
+        let fx = fxOn ? Vec4(min(1, fourDX.water * fxK), min(1, fourDX.wind * fxK), fourDX.flash, settings.fourDXVirtualMist ? fourDX.mist * fxK * 0.5 : 0) : .zero
+        let fx2 = Vec4(aspect, game.time.truncatingRemainder(dividingBy: 600), shake.x, shake.y)
+        postPass(cmd, target: drawable.texture, pipeline: compositePipeline, textures: [hdr, bloomOn ? bloomA : black], params: &comp, extra: [fx, fx2])
 
         cmd.present(drawable)
         cmd.commit()
     }
 
-    private func postPass(_ cmd: MTLCommandBuffer, target: MTLTexture, pipeline: MTLRenderPipelineState, textures: [MTLTexture], params: inout Vec4) {
+    private func postPass(_ cmd: MTLCommandBuffer, target: MTLTexture, pipeline: MTLRenderPipelineState, textures: [MTLTexture], params: inout Vec4, extra: [Vec4] = []) {
         let pass = MTLRenderPassDescriptor()
         pass.colorAttachments[0].texture = target
         pass.colorAttachments[0].loadAction = .dontCare
@@ -416,6 +422,7 @@ final class Renderer {
         enc.setRenderPipelineState(pipeline)
         for (i, t) in textures.enumerated() { enc.setFragmentTexture(t, index: i) }
         enc.setFragmentBytes(&params, length: MemoryLayout<Vec4>.stride, index: 0)
+        for (i, v) in extra.enumerated() { var copy = v; enc.setFragmentBytes(&copy, length: MemoryLayout<Vec4>.stride, index: 1 + i) }
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         enc.endEncoding()
     }
@@ -706,14 +713,15 @@ final class Renderer {
     private func apply4DX(session: TheaterSession, game: CinemaGame, dt: Float) {
         let feature4DX = session.ticket?.screeningFormat.uses4DX == true && session.phase == .feature &&
             session.feature.player.rate > 0 && FourDX.isPreviewActive(settings: settings)
-        let trailer4DX = session.activeYouTubeTrailer?.presentation == .fourDX &&
+        let trailer4DX = session.activeYouTubeTrailer?.presentation.uses4DX == true &&
             session.phase == .trailer && session.youtubeIsPlaying && settings.fourDXTrailersEnabled
-        let youTube4DX = youtubeCinema?.isOpen == true &&
+        let youTube4DX = youtubeCinema?.isOpen == true && youtubeCinema?.format.uses4DX == true &&
             youtubeCinema?.playing == true && youtubeCinema?.preset != .off
         let want = feature4DX || trailer4DX || youTube4DX
         if feature4DX, let ticket = session.ticket {
             fourDX.beginMedia(id: ticket.mediaId, duration: session.feature.duration)
         }
+        fourDX.flashesAllowed = settings.fourDXScreenFlashes
         if want && !fourDX.running { fourDX.start(haptics: settings.fourDXHaptics) }
         if !want && fourDX.running { fourDX.stop() }
         let grid = screenAverage.contents().bindMemory(to: Vec4.self, capacity: 65).advanced(by: 1)

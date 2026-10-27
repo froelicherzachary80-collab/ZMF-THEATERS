@@ -100,6 +100,11 @@ struct AppSettings: Codable, Equatable {
     var fourDXVirtualFog = true
     var fourDXAtmosphereStrength: Double = 0.55
     var fourDXSeatTravel: Double = 1.0
+    /// Water droplets / mist / wind streaks drawn over your view while seated.
+    var fourDXScreenEffects = true
+    /// Short bounded light flashes (ride lightning, concert beats). Off by
+    /// default for photosensitive viewers; never derived from brightness.
+    var fourDXScreenFlashes = false
     // v0.4.2 independent YouTube cinema controls; all processing stays local.
     var youtubeCinemaPreset: YouTubeMotionPreset = .edits
     var youtubeCinemaBPM: Double = 120

@@ -34,6 +34,7 @@ final class CinemaGame: ObservableObject {
     private(set) var seatedAt: (room: Int, row: Int, seat: Int)?
     private(set) var reclined = false
     private var sitBlend: Float = 0           // 0 standing → 1 seated
+    private var reclineBlend: Float = 0       // eases the recliner motor
     private var seatYawOffset: Float = 0
     private var standPosition = Vec3.zero
     private var walkPhase: Float = 0
@@ -67,14 +68,17 @@ final class CinemaGame: ObservableObject {
         if let s = seatedAt {
             let seat = CinemaWorld.seatPosition(room: s.room, row: s.row, seat: s.seat)
             let back = -forwardVector(yaw: CinemaWorld.screenYaw(s.room))
-            let recline: Float = reclined ? 1 : 0
-            let seatedEye = seat + Vec3(0, 1.12 - 0.12 * recline, 0) + back * (0.18 + 0.2 * recline)
+            // Recline tilts the head back and lowers it slightly; the eye only
+            // moves 2 cm toward the backrest so it never clips the upholstery
+            // (previously it sat inside the cushion and the view went red).
+            let recline = reclineBlend
+            let seatedEye = seat + Vec3(0, 1.12 - 0.1 * recline, 0) + back * (0.18 + 0.02 * recline)
             let standEye = standPosition + Vec3(0, CinemaWorld.eyeHeight, 0)
             let t = smoothstep(sitBlend)
             // Subtle breathing so the seated view feels like a body, not a tripod.
             let breathe = Vec3(0, sinf(time * 1.35) * 0.006, 0) + back * (sinf(time * 0.7) * 0.004)
             let eye = standEye + (seatedEye - standEye) * t + breathe * t + seatMotion.offset * t
-            let dir = forwardVector(yaw: yaw + seatMotion.tilt.y * t, pitch: pitch + 0.08 * recline + seatMotion.tilt.x * t)
+            let dir = forwardVector(yaw: yaw + seatMotion.tilt.y * t, pitch: pitch + 0.16 * recline + seatMotion.tilt.x * t)
             return CameraState(eye: eye, target: eye + dir)
         }
         let bob = sinf(walkPhase) * 0.035 * min(1, simd_length(moveInput))
@@ -107,6 +111,7 @@ final class CinemaGame: ObservableObject {
             yaw = CinemaWorld.screenYaw(s.room) + seatYawOffset
             pitch = max(-0.6, min(0.7, pitch - look.y))
             sitBlend = min(1, sitBlend + dt * 1.4)
+            reclineBlend += ((reclined ? 1 : 0) - reclineBlend) * min(1, dt * 1.8)
         } else {
             yaw = wrapAngle(yaw - look.x)
             pitch = max(-1.2, min(1.2, pitch - look.y))
@@ -178,6 +183,7 @@ final class CinemaGame: ObservableObject {
         standPosition = position
         seatedAt = nil
         reclined = false
+        reclineBlend = 0
         sitBlend = 0
         refreshHUD()
     }

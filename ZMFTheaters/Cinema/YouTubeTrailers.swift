@@ -5,9 +5,27 @@ import WebKit
 /// Public links are embedded with the official YouTube IFrame Player API.
 /// No downloader, scraping, stream extraction or playback bypass is used.
 enum TrailerPresentation: String, Codable, CaseIterable, Identifiable {
-    case standard, fourDX
+    // Raw values "standard" and "fourDX" are kept so saved lists still load.
+    case standard, threeD, fourDX, fourDX3D
     var id: String { rawValue }
-    var label: String { self == .fourDX ? "4DX virtual preview" : "Standard preview" }
+    var uses3D: Bool { self == .threeD || self == .fourDX3D }
+    var uses4DX: Bool { self == .fourDX || self == .fourDX3D }
+    var label: String {
+        switch self {
+        case .standard: return "2D"
+        case .threeD: return "3D (red/cyan)"
+        case .fourDX: return "4DX"
+        case .fourDX3D: return "4DX + 3D"
+        }
+    }
+    var badge: String {
+        switch self {
+        case .standard: return "2D"
+        case .threeD: return "3D"
+        case .fourDX: return "4DX VIRTUAL MOTION"
+        case .fourDX3D: return "4DX 3D"
+        }
+    }
 }
 
 struct PreshowYouTubeTrailer: Codable, Equatable, Identifiable {
@@ -44,6 +62,11 @@ struct PreshowYouTubeTrailer: Codable, Equatable, Identifiable {
 /// preview preset is therefore marked as simulated, not content-aware motion.
 struct YouTubePreshowPlayer: UIViewRepresentable {
     let trailer: PreshowYouTubeTrailer
+    /// Red/cyan stereo-window 3D. YouTube does not expose its pixels to the
+    /// app, so this cannot run the depth model: the page applies a uniform
+    /// stereo offset to the embedded player (the picture floats behind the
+    /// screen plane). Not per-pixel depth conversion.
+    var stereo3D = false
     let onStateChange: (Bool, Double) -> Void
     let onEnded: () -> Void
     let onError: (String) -> Void
@@ -76,7 +99,11 @@ struct YouTubePreshowPlayer: UIViewRepresentable {
         if context.coordinator.loadedID != trailer.videoID {
             context.coordinator.loadedID = trailer.videoID
             context.coordinator.usingWatchPage = false
+            context.coordinator.stereo = stereo3D
             load(trailer, in: webview)
+        } else if context.coordinator.stereo != stereo3D {
+            context.coordinator.stereo = stereo3D
+            webview.evaluateJavaScript("window.zmfSet3D && zmfSet3D(\(stereo3D))", completionHandler: nil)
         }
     }
 
@@ -103,8 +130,24 @@ struct YouTubePreshowPlayer: UIViewRepresentable {
               trailer.videoID.utf8.allSatisfy({ ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".utf8).contains($0) }) else { return }
         let html = """
         <!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-        <style>html,body,#player{margin:0;padding:0;background:black;width:100%;height:100%;overflow:hidden}</style>
-        </head><body><div id="player"></div><script>
+        <style>html,body,#wrap,#player{margin:0;padding:0;background:black;width:100%;height:100%;overflow:hidden}
+        #wrap.s3d{filter:url(#zmfAnaglyph)}</style>
+        </head><body>
+        <svg width="0" height="0" style="position:absolute"><filter id="zmfAnaglyph" color-interpolation-filters="sRGB" x="0" y="0" width="100%" height="100%">
+          <feOffset in="SourceGraphic" id="zmfL" dx="-4" result="L"/>
+          <feColorMatrix in="L" type="matrix" values="0.3 0.6 0.1 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="R"/>
+          <feOffset in="SourceGraphic" id="zmfR" dx="4" result="Rt"/>
+          <feColorMatrix in="Rt" type="matrix" values="0 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 1 0" result="C"/>
+          <feComposite in="R" in2="C" operator="arithmetic" k1="0" k2="1" k3="1" k4="0"/>
+        </filter></svg>
+        <div id="wrap" class="\(stereo3D ? "s3d" : "")"><div id="player"></div></div><script>
+        function zmfSet3D(on) {
+          var d = Math.max(2, Math.round(window.innerWidth * 0.006));
+          document.getElementById('zmfL').setAttribute('dx', -d);
+          document.getElementById('zmfR').setAttribute('dx', d);
+          document.getElementById('wrap').className = on ? 's3d' : '';
+        }
+        window.addEventListener('load', function(){ zmfSet3D(\(stereo3D)); });
         var player;
         function tell(kind, value) {
           try { window.webkit.messageHandlers.zmfTrailer.postMessage({kind:kind,value:value}); } catch(e) {}
@@ -145,9 +188,11 @@ struct YouTubePreshowPlayer: UIViewRepresentable {
         weak var webview: WKWebView?
         var loadedID: String
         var usingWatchPage = false
+        var stereo = false
         init(parent: YouTubePreshowPlayer) {
             self.parent = parent
             loadedID = parent.trailer.videoID
+            stereo = parent.stereo3D
         }
 
         func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {

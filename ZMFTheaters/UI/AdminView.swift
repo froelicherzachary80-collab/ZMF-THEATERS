@@ -202,7 +202,7 @@ struct PreshowAdminView: View {
             Section("Sequence") {
                 Toggle("Preshow before every screening", isOn: $settingsStore.settings.preshowEnabled)
                 Toggle("Standard trailers", isOn: $settingsStore.settings.standardTrailersEnabled)
-                Toggle("4DX trailers (virtual preview motion)", isOn: $settingsStore.settings.fourDXTrailersEnabled)
+                Toggle("4DX / 4DX + 3D presentations (virtual motion)", isOn: $settingsStore.settings.fourDXTrailersEnabled)
                 Stepper("Welcome: \(settingsStore.settings.welcomeSeconds)s", value: $settingsStore.settings.welcomeSeconds, in: 3...120)
                 Stepper("Trailers: up to \(settingsStore.settings.maxTrailers)", value: $settingsStore.settings.maxTrailers, in: 0...6)
                 Stepper("ZMF presentation: \(settingsStore.settings.introSeconds)s", value: $settingsStore.settings.introSeconds, in: 3...60)
@@ -248,8 +248,9 @@ struct PreshowAdminView: View {
                         }
                         Spacer()
                         Menu {
-                            Button("Standard") { setType(trailer.id, .standard) }
-                            Button("4DX motion") { setType(trailer.id, .fourDX) }
+                            ForEach(TrailerPresentation.allCases) { format in
+                                Button(format.label) { setType(trailer.id, format) }
+                            }
                             Button("Remove", role: .destructive) {
                                 settingsStore.settings.youtubeTrailers.removeAll { $0.id == trailer.id }
                             }
@@ -258,7 +259,7 @@ struct PreshowAdminView: View {
                 }.onMove { source, destination in
                     settingsStore.settings.youtubeTrailers.move(fromOffsets: source, toOffset: destination)
                 }
-                Text("Paste official public YouTube links. Videos play through YouTube's embedded player; some uploaders disable embedding or require a tap to start. No video is downloaded. Use Next to skip unavailable previews.")
+                Text("Each presentation can play in 2D, 3D (red/cyan stereo window), 4DX or 4DX + 3D. YouTube does not let apps read its pixels, so 3D is a uniform stereo offset rather than the AI depth conversion used for your films. Paste official public YouTube links. Videos play through YouTube's embedded player; some uploaders disable embedding or require a tap to start. No video is downloaded. Use Next to skip unavailable previews.")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             Section {
@@ -473,6 +474,10 @@ struct FourDXAdminView: View {
                 Toggle("Snow particles", isOn: $settingsStore.settings.fourDXVirtualSnow)
                 Toggle("Floating ash particles", isOn: $settingsStore.settings.fourDXVirtualAsh)
                 Toggle("Volumetric fog", isOn: $settingsStore.settings.fourDXVirtualFog)
+                Toggle("Water spray & mist on screen", isOn: $settingsStore.settings.fourDXScreenEffects)
+                Toggle("Light flashes (ride & concert beats)", isOn: $settingsStore.settings.fourDXScreenFlashes)
+                Text("Screen effects draw water droplets, mist, wind streaks and vibration over your view while seated in a 4DX screening. Flashes are off by default; leave them off if you are sensitive to flashing light.")
+                    .font(.caption2).foregroundStyle(.secondary)
                 VStack(alignment: .leading) {
                     Text("Atmosphere intensity: \(Int(settingsStore.settings.fourDXAtmosphereStrength * 100))%")
                     Slider(value: $settingsStore.settings.fourDXAtmosphereStrength, in: 0...1)

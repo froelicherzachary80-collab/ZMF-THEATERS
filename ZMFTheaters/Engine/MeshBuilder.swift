@@ -105,6 +105,15 @@ final class MeshBuilder {
         box(c - s * 0.5, c + s * 0.5, color: color, mat: mat)
     }
 
+    /// Upholstered/rounded look: three overlapping boxes, each inset on one
+    /// axis by `r`, read as chamfered edges under the shading model.
+    func cushion(_ mn: Vec3, _ mx: Vec3, r: Float, color: Vec4, mat: MaterialKey = .lit(rough: 0.82)) {
+        let r = min(r, (mx.x - mn.x) * 0.45, (mx.y - mn.y) * 0.45, (mx.z - mn.z) * 0.45)
+        box(Vec3(mn.x + r, mn.y, mn.z + r), Vec3(mx.x - r, mx.y, mx.z - r), color: color, mat: mat)
+        box(Vec3(mn.x, mn.y + r, mn.z + r), Vec3(mx.x, mx.y - r, mx.z - r), color: color, mat: mat)
+        box(Vec3(mn.x + r, mn.y + r, mn.z), Vec3(mx.x - r, mx.y - r, mx.z), color: color, mat: mat)
+    }
+
     /// A camera-readable rectangle (sign, poster, screen). Built in world space
     /// after transforming centre and normal, so text is never mirrored.
     func sign(center: Vec3, normal: Vec3, width: Float, height: Float, color: Vec4 = Vec4(1, 1, 1, 1), mat: MaterialKey) {

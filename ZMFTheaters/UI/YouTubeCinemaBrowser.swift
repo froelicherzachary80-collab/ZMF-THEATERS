@@ -33,6 +33,8 @@ final class YouTubeCinemaSession: ObservableObject {
     }
     @Published var error: String?
     @Published var preset: YouTubeMotionPreset = .edits
+    /// 2D / 3D / 4DX / 4DX + 3D for this YouTube screening.
+    @Published var format: TrailerPresentation = .fourDX
     @Published var bpm: Double = 120
     @Published private(set) var cutMarks: [Double] = []
 
@@ -280,6 +282,7 @@ struct YouTubeBrowserView: View {
 /// cinematic environment and synchronized *virtual seat* run behind it.
 struct YouTubeCinemaOverlay: View {
     @ObservedObject var cinema: YouTubeCinemaSession
+    var renderer: Renderer?
     @EnvironmentObject var settingsStore: SettingsStore
     let onBrowse: () -> Void
     let onClose: () -> Void
@@ -294,8 +297,15 @@ struct YouTubeCinemaOverlay: View {
                         Label("YOUTUBE • ZMF CINEMA", systemImage: "play.rectangle.fill")
                             .font(.caption.bold()).foregroundStyle(.white)
                         Spacer()
-                        Text(cinema.preset == .off ? "2D" : "VIRTUAL 4DX")
-                            .font(.caption2.bold()).foregroundStyle(.cyan)
+                        Menu {
+                            Picker("Format", selection: $cinema.format) {
+                                ForEach(TrailerPresentation.allCases) { Text($0.label).tag($0) }
+                            }
+                        } label: {
+                            Text(cinema.format.uses4DX && cinema.preset == .off ? (cinema.format.uses3D ? "3D" : "2D") : cinema.format.badge)
+                                .font(.caption2.bold()).foregroundStyle(.cyan)
+                        }
+                        .accessibilityLabel("Presentation format")
                         Button { advancedControls.toggle() } label: { Image(systemName: "slider.horizontal.3") }
                             .accessibilityLabel("4DX motion settings")
                         Button(action: onBrowse) { Image(systemName: "magnifyingglass") }
@@ -306,15 +316,18 @@ struct YouTubeCinemaOverlay: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
 
-                    YouTubePreshowPlayer(trailer: video,
-                        onStateChange: { isPlaying, time in cinema.receive(playing: isPlaying, seconds: time) },
-                        onEnded: { cinema.receive(playing: false, seconds: cinema.seconds) },
-                        onError: { cinema.error = $0 }
-                    )
-                    .id(video.videoID)
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .background(.black)
-                    .clipShape(RoundedRectangle(cornerRadius: 7))
+                    FourDXMotionStage(engine: renderer?.fourDX, enabled: cinema.format.uses4DX,
+                                      showEffects: settingsStore.settings.fourDXScreenEffects) {
+                        YouTubePreshowPlayer(trailer: video, stereo3D: cinema.format.uses3D,
+                            onStateChange: { isPlaying, time in cinema.receive(playing: isPlaying, seconds: time) },
+                            onEnded: { cinema.receive(playing: false, seconds: cinema.seconds) },
+                            onError: { cinema.error = $0 }
+                        )
+                        .id(video.videoID)
+                        .aspectRatio(16 / 9, contentMode: .fit)
+                        .background(.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 7))
+                    }
                     .layoutPriority(1)
 
                     if let error = cinema.error {
@@ -350,7 +363,7 @@ struct YouTubeCinemaOverlay: View {
                             }.font(.caption2).disabled(cinema.cutMarks.isEmpty)
                         }
                     }
-                    Text("4DX uses the official player clock + selected rhythm + your marked cuts; it cannot detect actual edits or sounds inside YouTube videos. Tap Play in the player.")
+                    Text(cinema.format.uses3D ? "3D: wear red/cyan glasses (stereo window — YouTube pixels can't be depth-converted). 4DX follows the player clock + rhythm + your marked cuts (cuts also splash water). Tap Play." : "4DX uses the official player clock + selected rhythm + your marked cuts (cuts also splash water); it cannot detect actual edits or sounds inside YouTube videos. Tap Play in the player.")
                         .font(.caption2).foregroundStyle(.white.opacity(0.72)).lineLimit(2)
                 }
                 .padding(10)

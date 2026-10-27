@@ -248,11 +248,39 @@ enum WorldGeometry {
             for s in 0..<8 {
                 let z = CinemaWorld.seatZ(s)
                 let col = vip ? rgb(t.seat, 1.35) : seatColor
-                // Reclining premium seat: base, cushion, backrest, armrests.
-                b.box(Vec3(x - 0.4, fl, z - 0.42), Vec3(x + 0.35, fl + 0.3, z + 0.42), color: frame)
-                b.box(Vec3(x - 0.42, fl + 0.3, z - 0.42), Vec3(x + 0.35, fl + 0.52, z + 0.42), color: col, mat: .lit(rough: 0.8))
-                b.box(Vec3(x + 0.3, fl + 0.4, z - 0.42), Vec3(x + 0.52, fl + 1.2, z + 0.42), color: col, mat: .lit(rough: 0.8))
-                b.box(Vec3(x - 0.35, fl + 0.3, z - 0.52), Vec3(x + 0.45, fl + 0.75, z - 0.42), color: frame, mat: .lit(rough: 0.4))
+                // Premium 4DX recliner. Local +x points away from the screen.
+                // The backrest front stays at x + 0.30 so the seated eye
+                // (x + 0.18…0.20) never ends up inside the upholstery.
+                let seam = rgb(t.seat, 0.55)
+                let shade = rgb(t.seat, vip ? 1.1 : 0.85)
+                let chrome = MaterialKey.lit(rough: 0.18, metal: 0.95)
+                b.box(Vec3(x - 0.4, fl, z - 0.4), Vec3(x + 0.35, fl + 0.3, z + 0.4), color: frame)
+                // Seat cushion with a rolled front edge and stitched centre seam.
+                b.cushion(Vec3(x - 0.36, fl + 0.3, z - 0.36), Vec3(x + 0.32, fl + 0.5, z + 0.36), r: 0.06, color: col)
+                b.cushion(Vec3(x - 0.44, fl + 0.26, z - 0.35), Vec3(x - 0.3, fl + 0.48, z + 0.35), r: 0.06, color: shade)
+                b.box(Vec3(x - 0.3, fl + 0.501, z - 0.005), Vec3(x + 0.28, fl + 0.505, z + 0.005), color: seam, mat: .lit(rough: 0.9))
+                // Leg rest panel (folded) under the front of the cushion.
+                b.cushion(Vec3(x - 0.47, fl + 0.06, z - 0.33), Vec3(x - 0.41, fl + 0.3, z + 0.33), r: 0.025, color: shade)
+                // Backrest: lumbar roll, two channel-tufted panels, wing bolsters.
+                b.cushion(Vec3(x + 0.3, fl + 0.42, z - 0.4), Vec3(x + 0.56, fl + 1.16, z + 0.4), r: 0.07, color: col)
+                b.cushion(Vec3(x + 0.26, fl + 0.5, z - 0.3), Vec3(x + 0.36, fl + 0.68, z + 0.3), r: 0.05, color: shade)
+                for k in 0..<2 {
+                    let y0 = fl + 0.7 + Float(k) * 0.22
+                    b.cushion(Vec3(x + 0.29, y0, z - 0.29), Vec3(x + 0.34, y0 + 0.2, z + 0.29), r: 0.03, color: col)
+                }
+                for side in [-1, 1] as [Float] {
+                    b.cushion(Vec3(x + 0.24, fl + 0.6, z + side * 0.42 - 0.06), Vec3(x + 0.52, fl + 1.1, z + side * 0.42 + 0.06),
+                              r: 0.04, color: shade)
+                }
+                // Back shell (seen from the row behind) with 4DX air/water jets.
+                b.box(Vec3(x + 0.56, fl + 0.36, z - 0.42), Vec3(x + 0.6, fl + 1.2, z + 0.42), color: frame, mat: .lit(rough: 0.45, metal: 0.3))
+                for side in [-0.12, 0.12] as [Float] {
+                    b.box(center: Vec3(x + 0.605, fl + 0.94, z + side), size: Vec3(0.012, 0.035, 0.035), color: rgb(0.55, 0.85, 1), mat: .glow(1.1))
+                }
+                // Armrest: padded top, chrome trim and illuminated cupholder ring.
+                b.box(Vec3(x - 0.35, fl + 0.3, z - 0.52), Vec3(x + 0.45, fl + 0.7, z - 0.42), color: frame, mat: .lit(rough: 0.4))
+                b.cushion(Vec3(x - 0.38, fl + 0.7, z - 0.535), Vec3(x + 0.46, fl + 0.78, z - 0.405), r: 0.03, color: rgb(0.1, 0.09, 0.09))
+                b.box(Vec3(x - 0.4, fl + 0.66, z - 0.54), Vec3(x + 0.47, fl + 0.675, z - 0.4), color: rgb(0.7, 0.72, 0.76), mat: chrome)
                 // Virtual motion platform: four supports, rails, actuator
                 // shrouds and mounting hardware under each premium chair.
                 let chassis = rgb(0.13, 0.17, 0.2)
@@ -270,14 +298,15 @@ enum WorldGeometry {
                 b.box(center: Vec3(x - 0.38, fl + 0.43, z - 0.49),
                       size: Vec3(0.08, 0.1, 0.1), color: rgb(0.58, 0.62, 0.67), mat: metal)
                 // Headrest pillow, lit cupholder and a little LED under the seat.
-                b.box(Vec3(x + 0.28, fl + 1.0, z - 0.3), Vec3(x + 0.46, fl + 1.24, z + 0.3), color: rgb(t.seat, vip ? 1.0 : 0.75), mat: .lit(rough: 0.9))
-                b.box(center: Vec3(x - 0.22, fl + 0.757, z - 0.47), size: Vec3(0.1, 0.012, 0.1), color: rgb(t.accent), mat: .glow(1.6))
+                b.cushion(Vec3(x + 0.3, fl + 1.02, z - 0.26), Vec3(x + 0.5, fl + 1.26, z + 0.26), r: 0.06, color: rgb(t.seat, vip ? 1.0 : 0.75), mat: .lit(rough: 0.9))
+                b.box(center: Vec3(x - 0.22, fl + 0.785, z - 0.47), size: Vec3(0.1, 0.012, 0.1), color: rgb(t.accent), mat: .glow(1.6))
                 b.box(center: Vec3(x - 0.38, fl + 0.06, z), size: Vec3(0.04, 0.02, 0.6), color: rgb(t.light), mat: .glow(1.2))
                 // Seat number plaque on the back, readable from the row behind.
-                b.sign(center: Vec3(x + 0.53, fl + 1.08, z), normal: Vec3(1, 0, 0), width: 0.15, height: 0.11, mat: .glowTex("num.\(s)", 0.55))
+                b.sign(center: Vec3(x + 0.6, fl + 1.08, z), normal: Vec3(1, 0, 0), width: 0.15, height: 0.11, mat: .glowTex("num.\(s)", 0.55))
             }
             let zEnd = CinemaWorld.seatZ(7) + 0.52
-            b.box(Vec3(x - 0.35, fl + 0.3, zEnd - 0.1), Vec3(x + 0.45, fl + 0.75, zEnd), color: frame, mat: .lit(rough: 0.4))
+            b.box(Vec3(x - 0.35, fl + 0.3, zEnd - 0.1), Vec3(x + 0.45, fl + 0.7, zEnd), color: frame, mat: .lit(rough: 0.4))
+            b.cushion(Vec3(x - 0.38, fl + 0.7, zEnd - 0.115), Vec3(x + 0.46, fl + 0.78, zEnd + 0.015), r: 0.03, color: rgb(0.1, 0.09, 0.09))
         }
     }
 

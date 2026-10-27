@@ -111,6 +111,16 @@ final class FourDXEngine {
     private(set) var ash: Float = 0
     private(set) var virtualFog: Float = 0
     private(set) var inTrailerPreview = false
+    /// Screen-space 4DX layer (0–1): water droplets/mist on your view, wind
+    /// streaks and a bounded light flash. These are virtual visual effects
+    /// for the iPhone display; no physical water, air or strobe hardware.
+    private(set) var water: Float = 0
+    private(set) var wind: Float = 0
+    private(set) var flash: Float = 0
+    /// Allows short, bounded preset/ride flashes (never from brightness).
+    var flashesAllowed = false
+    private var lastFlash: Double = -10
+    private var lastSplash: Double = -10
 
     private let cache = FourDXCueCache()
     private var mediaID: String?
@@ -128,6 +138,7 @@ final class FourDXEngine {
     private var rumblePlayer: CHHapticAdvancedPatternPlayer?
     private var lastHapticUpdate: Double = -1
     private(set) var running = false
+    private var inRide = false
 
     func beginMedia(id: String, duration: Double) {
         guard !id.isEmpty, duration.isFinite, duration > 0 else { return }
@@ -194,7 +205,10 @@ final class FourDXEngine {
         seatOffset = .zero
         seatTilt = .zero
         mist = 0; snow = 0; ash = 0; virtualFog = 0
+        water = 0; wind = 0; flash = 0
+        lastFlash = -10; lastSplash = -10
         inTrailerPreview = false
+        inRide = false
     }
 
     func stop() {
@@ -313,6 +327,11 @@ final class FourDXEngine {
         // Every preset takes turns through a 56-second loop and is intensity-
         // modulated. Later semantic recognition can select the actual cues.
         updateAtmosphere(timestamp: seconds, activity: rumble)
+        // Wind follows measured picture motion (pans/fast movement), the same
+        // evidence that drives the seat. Water mist only rides the labelled
+        // demonstration mist scene; nothing is inferred from brightness.
+        updateScreenLayer(step: step, wind: min(1, simd_length(velocity) * 4 + rumble * 1.6) * strength,
+                          water: mist > 0.55 && rumble > 0.06 ? mist * 0.6 * strength : 0, flash: 0)
 
         if let c = cue, grid != nil, seconds - lastRecorded >= 0.48, mediaID != nil {
             stored.append(FourDXMotionCue(timestamp: seconds, energy: c.energy, flowX: c.flowX, flowY: c.flowY))
@@ -383,11 +402,55 @@ final class FourDXEngine {
         motionKind = cutPulse > 0 ? .turbulence : (direction > 0 ? .bankRight : .bankLeft)
         strobe = 0
         updateAtmosphere(timestamp: seconds, activity: rumble)
+        // Splash and light cues come from the user's own edit marks and the
+        // chosen rhythm; they are clock-synchronised, not content-detected.
+        if marker && seconds - lastSplash > 0.8 { lastSplash = seconds }
+        let splash: Float = seconds - lastSplash < 0.6 ? strength : 0
+        var light: Float = 0
+        if flashesAllowed && (preset == .concert || preset == .edits) && onset > 0.85 && seconds - lastFlash > 0.5 {
+            lastFlash = seconds
+        }
+        if flashesAllowed && seconds - lastFlash < 0.12 { light = 0.22 * strength }
+        updateScreenLayer(step: step, wind: min(1, abs(direction) * motion * 14 + pulse) * strength,
+                          water: max(splash, mist > 0.55 ? mist * 0.35 * strength : 0), flash: light)
         if let player = rumblePlayer, seconds - lastHapticUpdate > 0.075 {
             lastHapticUpdate = seconds
             try? player.sendParameters([CHHapticDynamicParameter(
                 parameterID: .hapticIntensityControl, value: min(0.3, rumble), relativeTime: 0)],
                 atTime: CHHapticTimeImmediate)
+        }
+    }
+
+    /// Eases the screen-space layer. Water rises fast (a spray hits) and
+    /// drains slowly; flash is capped at 0.35 and rate-limited by callers.
+    private func updateScreenLayer(step: Float, wind w: Float, water wt: Float, flash f: Float) {
+        let wTarget = max(0, min(1, w.isFinite ? w : 0))
+        let waterTarget = max(0, min(1, wt.isFinite ? wt : 0))
+        wind += (wTarget - wind) * (1 - expf(-step * 4))
+        water += (waterTarget - water) * (1 - expf(-step * (waterTarget > water ? 9 : 0.45)))
+        let fTarget = max(0, min(0.35, f.isFinite ? f : 0))
+        flash += (fTarget - flash) * (1 - expf(-step * (fTarget > flash ? 30 : 8)))
+    }
+
+    /// Direct drive from a scripted ride (the ZMF roller-coaster intro): the
+    /// ride's own physics provide seat motion, wind, spray and flashes.
+    func updateRide(dt: Float, offset: Vec3, tilt: Vec2, rumble r: Float, wind w: Float, water wt: Float, flash f: Float, intensity: Float) {
+        guard running else { return }
+        if !inRide { resetMotion(); inRide = true }
+        let step = dt.isFinite ? max(0, min(0.1, dt)) : 0
+        let k = intensity.isFinite ? max(0, min(1, intensity)) : 0
+        let alpha = 1 - expf(-step * 7)
+        let clampedTilt = Vec2(max(-0.12, min(0.12, tilt.x)), max(-0.14, min(0.14, tilt.y))) * k
+        let clampedOffset = Vec3(max(-0.12, min(0.12, offset.x)), max(-0.1, min(0.1, offset.y)), max(-0.12, min(0.12, offset.z))) * k
+        seatOffset += (clampedOffset - seatOffset) * alpha
+        seatTilt += (clampedTilt - seatTilt) * alpha
+        rumble += (max(0, min(0.4, r)) * k - rumble) * alpha
+        motionKind = .turbulence
+        strobe = 0
+        updateScreenLayer(step: step, wind: w * k, water: wt * k, flash: flashesAllowed ? f * k : 0)
+        if let p = rumblePlayer {
+            try? p.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl,
+                                value: min(0.4, rumble), relativeTime: 0)], atTime: CHHapticTimeImmediate)
         }
     }
 
@@ -423,6 +486,8 @@ final class FourDXEngine {
         motionKind = .turbulence
         strobe = 0
         updateAtmosphere(timestamp: timestamp, activity: rumble)
+        updateScreenLayer(step: step, wind: min(1, 0.25 + abs(sinf(t * 0.6)) * 0.5) * k,
+                          water: mist > 0.55 ? mist * 0.45 * k : 0, flash: 0)
         if let p = rumblePlayer, Double(t) - lastHapticUpdate > 0.075 {
             lastHapticUpdate = Double(t)
             try? p.sendParameters([CHHapticDynamicParameter(

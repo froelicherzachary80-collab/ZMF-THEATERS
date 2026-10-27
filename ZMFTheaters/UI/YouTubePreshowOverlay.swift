@@ -5,6 +5,8 @@ import SwiftUI
 /// renderer, extracted, downloaded, or converted into an anaglyph film.
 struct YouTubePreshowOverlay: View {
     @ObservedObject var session: TheaterSession
+    var renderer: Renderer?
+    var settings = AppSettings()
 
     var body: some View {
         if let trailer = session.activeYouTubeTrailer {
@@ -17,14 +19,16 @@ struct YouTubePreshowOverlay: View {
                             .font(.caption2.weight(.black))
                             .lineLimit(1)
                         Spacer()
-                        Text(trailer.presentation == .fourDX ? "4DX VIRTUAL MOTION" : "STANDARD")
+                        Text(trailer.presentation.badge)
                             .font(.caption2.weight(.bold))
-                            .foregroundStyle(trailer.presentation == .fourDX ? .cyan : .white)
+                            .foregroundStyle(trailer.presentation.uses4DX ? Color.cyan : (trailer.presentation.uses3D ? Color.red : Color.white))
                     }
                     .padding(.horizontal, 8)
 
+                    FourDXMotionStage(engine: renderer?.fourDX, enabled: trailer.presentation.uses4DX,
+                                      showEffects: settings.fourDXScreenEffects) {
                     YouTubePreshowPlayer(
-                        trailer: trailer,
+                        trailer: trailer, stereo3D: trailer.presentation.uses3D,
                         onStateChange: { playing, seconds in session.updateYouTubePlayback(playing: playing, seconds: seconds) },
                         onEnded: { session.completeYouTubeTrailer() },
                         onError: { session.completeYouTubeTrailer(error: $0) }
@@ -33,11 +37,12 @@ struct YouTubePreshowOverlay: View {
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .background(.black)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
+                    }
 
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(trailer.title).font(.caption.weight(.semibold)).lineLimit(1)
-                            Text("Tap Play if the trailer does not start automatically.")
+                            Text(trailer.presentation.uses3D ? "Put on red/cyan glasses · tap Play if it doesn't start." : "Tap Play if the trailer does not start automatically.")
                                 .font(.caption2).foregroundStyle(.white.opacity(0.7))
                         }
                         Spacer(minLength: 4)

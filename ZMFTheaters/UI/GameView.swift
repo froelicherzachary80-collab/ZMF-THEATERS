@@ -60,13 +60,13 @@ struct GameView: View {
             .ignoresSafeArea()
 
             if model.youtubeCinema.isOpen {
-                YouTubeCinemaOverlay(cinema: model.youtubeCinema,
+                YouTubeCinemaOverlay(cinema: model.youtubeCinema, renderer: model.renderer,
                     onBrowse: { model.stopYouTubeCinema(); sheet = .youtube },
                     onClose: { model.stopYouTubeCinema() })
             }
 
             if session.phase == .trailer, session.activeYouTubeTrailer != nil {
-                YouTubePreshowOverlay(session: session)
+                YouTubePreshowOverlay(session: session, renderer: model.renderer, settings: settings)
             }
 
             if session.phase == .feature {

@@ -248,12 +248,59 @@ fragment float4 bloom_blur(PostOut in [[stage_in]],
 }
 
 // params: x = bloom strength, y = grain amount, z = time, w = vignette
+static float fxHash(float2 p) { return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
+
+// One layer of water droplets on the viewer's "lens". Returns the refraction
+// offset in xy and the droplet coverage in z.
+static float3 dropLayer(float2 uv, float aspect, float scale, float t, float amount) {
+    float2 p = float2(uv.x * aspect, uv.y) * scale;
+    float2 id = floor(p);
+    float2 f = fract(p) - 0.5;
+    float h1 = fxHash(id), h2 = fxHash(id + 17.3), h3 = fxHash(id + 41.9), h4 = fxHash(id + 73.1);
+    if (h4 > amount) return float3(0);
+    float life = fract(t * (0.12 + h3 * 0.18) + h1);
+    float fade = smoothstep(0.0, 0.04, life) * smoothstep(1.0, 0.55, life);
+    float2 pos = float2(h1 - 0.5, h2 - 0.5) * 0.55 + float2(0, life * 0.22 * h3);   // slow drip
+    float r = 0.1 + h2 * 0.16;
+    float2 d = (f - pos) * float2(1.0, 1.15);
+    float m = smoothstep(r, r * 0.55, length(d)) * fade;
+    // Drip trail above the bead.
+    float trail = smoothstep(0.03, 0.0, abs(f.x - pos.x)) * smoothstep(pos.y - 0.02, pos.y - 0.35, f.y) * smoothstep(-0.5, pos.y, f.y) * fade * 0.35 * step(0.6, h3);
+    return float3(d * m * 2.2, saturate(m + trail));
+}
+
 fragment float4 composite(PostOut in [[stage_in]],
                           texture2d<float> hdr [[texture(0)]],
                           texture2d<float> bloom [[texture(1)]],
-                          constant float4 &params [[buffer(0)]]) {
+                          constant float4 &params [[buffer(0)]],
+                          constant float4 &fx [[buffer(1)]],
+                          constant float4 &fx2 [[buffer(2)]]) {
+    // fx = (water, wind, flash, mist); fx2 = (aspect, time, shakeX, shakeY)
     constexpr sampler s(filter::linear, address::clamp_to_edge);
-    float3 c = hdr.sample(s, in.uv).rgb + bloom.sample(s, in.uv).rgb * params.x;
+    float2 uv = in.uv + fx2.zw;
+    float3 drops = float3(0);
+    if (fx.x > 0.01) {
+        drops += dropLayer(uv, fx2.x, 7.0, fx2.y, fx.x);
+        drops += dropLayer(uv + 0.37, fx2.x, 13.0, fx2.y * 1.3, fx.x * 0.85) * float3(0.6, 0.6, 1);
+        drops.z = saturate(drops.z);
+    }
+    float2 suv = uv - drops.xy * 0.06;
+    float3 c = hdr.sample(s, suv).rgb + bloom.sample(s, suv).rgb * params.x;
+    // Wet glass: droplets refract, darken at the rim and catch a highlight.
+    c = mix(c, c * 0.85 + bloom.sample(s, suv).rgb * 0.35, drops.z * 0.6);
+    c += drops.z * smoothstep(0.0, 0.06, -drops.y) * 0.08;
+    // Fine mist haze softens and lifts the image.
+    float mist = saturate(fx.w * 0.6 + fx.x * 0.25);
+    c = mix(c, bloom.sample(s, uv).rgb * 0.8 + float3(0.06, 0.07, 0.08), mist * 0.3);
+    // Wind: thin streaks rushing past the edges of the view.
+    if (fx.y > 0.01) {
+        float row = floor(uv.y * 90.0);
+        float hr = fxHash(float2(row, 3.1));
+        float streak = smoothstep(0.985, 1.0, fract(uv.x * (0.6 + hr) - fx2.y * (1.4 + hr * 2.6) + hr));
+        float edge = smoothstep(0.15, 0.5, abs(uv.x - 0.5) + abs(uv.y - 0.5) * 0.6);
+        c += streak * edge * fx.y * 0.22 * step(0.55, hr);
+    }
+    c += fx.z * float3(1.0, 0.96, 0.9);
     c = aces(c);
     float2 d = in.uv - 0.5;
     c *= mix(1.0, smoothstep(0.95, 0.3, length(d * float2(1.0, 0.8))), params.w);
