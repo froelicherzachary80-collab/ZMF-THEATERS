@@ -66,6 +66,10 @@ public sealed class FourDXEngine
     public SoundEvent? LastEvent { get; private set; }
     public int EventCount { get; private set; }
     public bool SoundAnalysis { get; private set; }
+    public double SpeechShare => SoundAnalysis ? classifier.MidShare : 0;
+    public double SustainedLow => SoundAnalysis ? classifier.SustainedLow : 0;
+    /// Smoothed camera speed (cells/s normalised) for the scene director.
+    public double CameraSpeed => Math.Sqrt(velX * velX + velY * velY) + Math.Abs(zoomRate) * 0.6;
     /// Raised for each detected event (for TactSuit patterns).
     public event Action<SoundEvent>? Detected;
 

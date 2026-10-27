@@ -9,7 +9,7 @@
     <AssemblyName>ZMFTheaters</AssemblyName>
     <RootNamespace>ZMFTheaters</RootNamespace>
     <ApplicationIcon>Assets\zmf.ico</ApplicationIcon>
-    <Version>0.4.2</Version>
+    <Version>0.5.0</Version>
     <Product>ZMF THEATERS+ for Windows</Product>
     <Company>ZMF</Company>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
@@ -25,6 +25,24 @@
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2651.64" />
     <PackageReference Include="System.Speech" Version="8.0.0" />
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+  </ItemGroup>
+
+  <!-- Windows 10 SDK projections (Bluetooth LE for Govee strips). Referenced
+       directly instead of switching to a net8.0-windows10.x TFM, which would make
+       LibVLCSharp pull in the Windows App SDK. -->
+  <ItemGroup>
+    <PackageDownload Include="Microsoft.Windows.SDK.NET.Ref" Version="[10.0.19041.57]" />
+    <Reference Include="Microsoft.Windows.SDK.NET">
+      <HintPath>$(NuGetPackageRoot)microsoft.windows.sdk.net.ref/10.0.19041.57/lib/net8.0/Microsoft.Windows.SDK.NET.dll</HintPath>
+    </Reference>
+    <Reference Include="WinRT.Runtime">
+      <HintPath>$(NuGetPackageRoot)microsoft.windows.sdk.net.ref/10.0.19041.57/lib/net8.0/WinRT.Runtime.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Local private-cinema / companion host (Kestrel), no cloud service -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
   <ItemGroup>

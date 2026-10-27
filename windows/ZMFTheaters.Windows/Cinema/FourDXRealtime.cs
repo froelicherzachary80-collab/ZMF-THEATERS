@@ -59,6 +59,11 @@ public sealed class SoundClassifier
     double lastLowEdge = -10;
     bool lowWasHigh, candidateRhythmic;
     public float Rumble { get; private set; }
+    /// Share of soundtrack energy in the speech band (150 Hz – 3 kHz). High
+    /// and steady with few events = dialogue-like.
+    public float MidShare => slowMid / Math.Max(1e-5f, slowLow + slowMid + slowHigh);
+    /// Sustained low-frequency level (engines, rotors, rumble), 0–1.
+    public float SustainedLow => Math.Clamp((slowLow - 0.015f) * 6, 0, 1);
     /// 0.5 = conservative, 1 = default, 2 = very sensitive.
     public float Sensitivity { get; set; } = 1;
 
