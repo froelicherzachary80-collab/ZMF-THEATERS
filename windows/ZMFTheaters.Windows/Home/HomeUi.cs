@@ -30,7 +30,8 @@ static class Ui
     {
         var b = new Button
         {
-            Content = text, Padding = new Thickness(14, 7, 14, 7), Margin = new Thickness(0, 4, 8, 4), FontWeight = FontWeights.SemiBold,
+            // Explicit TextBlock so the app-wide button template can't recolour the label.
+            Content = new TextBlock { Text = text, Foreground = primary ? Brush(0x1A, 0x10, 0x00) : Text, FontWeight = FontWeights.SemiBold }, Padding = new Thickness(14, 7, 14, 7), Margin = new Thickness(0, 4, 8, 4), FontWeight = FontWeights.SemiBold,
             Background = danger ? Danger : primary ? Gold : Brush(0x2A, 0x1C, 0x21), Foreground = primary ? Brush(0x1A, 0x10, 0x00) : Text,
             BorderBrush = Line, Cursor = System.Windows.Input.Cursors.Hand,
         };
