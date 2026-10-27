@@ -32,6 +32,7 @@ public static class HomeSelfTest
             Timeline(Check);
             await MockPlugEndToEnd(Check);
             await HostEndToEnd(Check);
+            await IdleSafety(Check);
         }
         catch (Exception ex) { log.Add("FAIL unexpected exception: " + ex); }
         log.Add("PHYSICAL HARDWARE: not available in this environment — no device was physically verified.");
@@ -289,6 +290,29 @@ public static class HomeSelfTest
     {
         var until = DateTime.UtcNow.AddMilliseconds(ms);
         while (!cond() && DateTime.UtcNow < until) await Task.Delay(25);
+    }
+
+    static async Task IdleSafety(Action<bool, string> Check)
+    {
+        var cfg = new HomeConfig { PhysicalEnabled = true };
+        await using var hub = new HomeHub(cfg, () => { }, new RoomStore(null));
+        var plug = new MockPlug();
+        hub.Devices.UseMocks(plug);
+        var now = new DateTime(2026, 10, 27, 22, 0, 0, DateTimeKind.Utc);
+        hub.Clock = () => now; hub.Devices.Clock = () => now;
+        for (double t = 0; t < 6; t += 0.1)
+        {
+            now = now.AddMilliseconds(100);
+            hub.ReportPc("film", "Film", t, true, AnalysisSource.Analysed);
+            hub.Director.Update(In(t, wind: 0.9, speed: 0.7, low: 0.6), 0.1);
+            hub.Tick(0.1);
+        }
+        await WaitFor(() => plug.On);
+        Check(plug.On, "[safety] simulated wind ON during playback (SIMULATED device)");
+        now = now.AddSeconds(30);
+        hub.Tick(0.1);
+        await WaitFor(() => !plug.On);
+        Check(!plug.On, "[safety] when playback goes silent the automated fan turns off by itself");
     }
 
     // MARK: Private cinema host

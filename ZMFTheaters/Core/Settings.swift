@@ -116,6 +116,10 @@ struct AppSettings: Codable, Equatable {
     /// Admin override to try 4DX outside the Oct 27–28 preview days.
     var fourDXForcePreview = false
 
+    // MARK: Home 4DX (Windows host drives the physical fan / lights)
+    var home4DXHost = ""
+    var home4DXAutoConnect = true
+
     // MARK: Playback
     var maxBitrateMbps = 60
     var autoplayNextEpisode = true

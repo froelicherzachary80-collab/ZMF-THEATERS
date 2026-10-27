@@ -102,6 +102,8 @@ public sealed class HomeConfig
     public string AccessCodeProtected { get; set; } = "";
     /// Commands are sent this early so the fan/light lands on time.
     public int OutputLatencyMs { get; set; } = 250;
+    /// Testing Laboratory results: test id → "PASS …", "FAIL …", "AWAITING HARDWARE …".
+    public Dictionary<string, string> TestResults { get; set; } = new();
 
     [JsonIgnore] public string TapoUser { get => Secret.Unprotect(TapoUserProtected); set => TapoUserProtected = Secret.Protect(value); }
     [JsonIgnore] public string TapoPassword { get => Secret.Unprotect(TapoPasswordProtected); set => TapoPasswordProtected = Secret.Protect(value); }

@@ -29,7 +29,26 @@ public partial class MainWindow : Window
     SyncPlayClient? party;
     CinemaWindow? cinema;
 
-    public MainWindow() => InitializeComponent();
+    readonly System.Windows.Threading.DispatcherTimer homeTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
+
+    public MainWindow()
+    {
+        InitializeComponent();
+        // Home 4DX brain: device controller, scene director, private rooms + companion host.
+        var hub = new ZMFTheaters.Home.HomeHub(config.Home, config.Save);
+        hub.Director.Level = config.Home.Level;
+        hub.Director.Flashes = config.Home.Flashes;
+        ZMFTheaters.Home.HomeHub.Current = hub;
+        if (config.Home.HostEnabled) hub.StartHost();
+        _ = Task.Run(async () => { foreach (var p in config.Home.Plugs.Where(p => p.Ip.Length > 0)) await hub.Devices.ReconnectAsync(p.Slot, CancellationToken.None); });
+        homeTimer.Tick += (_, _) => hub.Tick(0.1);
+        homeTimer.Start();
+    }
+
+    void OnAdminHome4DX(object sender, RoutedEventArgs e)
+    {
+        if (ZMFTheaters.Home.HomeHub.Current is { } hub) new ZMFTheaters.Home.HomeControlWindow(hub, config.Save) { Owner = this }.Show();
+    }
 
     JellyfinClient Client(ServerConfig s)
     {
@@ -62,6 +81,7 @@ public partial class MainWindow : Window
         LibraryPanel.Visibility = panel is "Movies" or "Shows" ? Visibility.Visible : Visibility.Collapsed;
         PartyPanel.Visibility = panel == "Parties" ? Visibility.Visible : Visibility.Collapsed;
         ServersPanel.Visibility = panel == "Servers" ? Visibility.Visible : Visibility.Collapsed;
+        AdminPanel.Visibility = panel == "Admin" ? Visibility.Visible : Visibility.Collapsed;
         PresentationsPanel.Visibility = panel == "Presentations" ? Visibility.Visible : Visibility.Collapsed;
         if (panel == "Presentations") RefreshPresentations();
         DetailOverlay.Visibility = Visibility.Collapsed;
@@ -377,6 +397,13 @@ public partial class MainWindow : Window
     {
         cinema?.Close();
         if (party != null) await party.DisposeAsync();
+        homeTimer.Stop();
+        if (ZMFTheaters.Home.HomeHub.Current is { } hub)
+        {
+            // Leave nothing running: the automated fan goes off when ZMF closes.
+            try { await hub.Devices.SuspendAsync("app closing").WaitAsync(TimeSpan.FromSeconds(3)); } catch { }
+            await hub.DisposeAsync();
+        }
         base.OnClosed(e);
         Application.Current.Shutdown();
     }

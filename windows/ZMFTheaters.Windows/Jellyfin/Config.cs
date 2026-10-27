@@ -65,6 +65,8 @@ public sealed class AppConfig
     public bool Force4DX { get; set; }
     public bool AllDoorsUnlocked { get; set; }
     public List<YouTubePresentation> Presentations { get; set; } = new();
+    /// V0.5 Home 4DX (real devices, private rooms, phone companion).
+    public ZMFTheaters.Home.HomeConfig Home { get; set; } = new();
     /// Original ZMF roller-coaster intro before the feature, with announcer.
     public bool CoasterIntro { get; set; } = true;
     public bool CoasterVoice { get; set; } = true;
@@ -85,7 +87,12 @@ public sealed class AppConfig
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(FilePath)) ?? new AppConfig();
+            {
+                var c = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(FilePath)) ?? new AppConfig();
+                c.Home ??= new ZMFTheaters.Home.HomeConfig();
+                c.Home.Migrate();   // older configs have no Home 4DX section
+                return c;
+            }
         }
         catch { }
         return new AppConfig();

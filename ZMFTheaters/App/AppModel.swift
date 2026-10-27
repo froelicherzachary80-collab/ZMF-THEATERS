@@ -18,6 +18,8 @@ final class AppModel: ObservableObject {
     let rotation = RotationDirector()
     let session = TheaterSession()
     let youtubeCinema = YouTubeCinemaSession()
+    /// Link to the Windows Home 4DX host (fan/lights brain).
+    let home4DX = Home4DXLink()
     let game = CinemaGame()
     let party = WatchParty()
     let renderer: Renderer?
@@ -37,6 +39,15 @@ final class AppModel: ObservableObject {
         renderer?.game = game
         renderer?.session = session
         renderer?.youtubeCinema = youtubeCinema
+        home4DX.startReporting { [weak self] in
+            guard let self, self.session.phase == .feature, let item = self.session.item else { return nil }
+            let t = self.session.feature.currentTime
+            return (item.itemId, item.displayTitle, t.isFinite ? t : 0, self.session.feature.player.rate > 0)
+        }
+        if settings.home4DXAutoConnect, !settings.home4DXHost.isEmpty, let code = Keychain.get(Home4DXLink.codeKey) {
+            let host = settings.home4DXHost
+            Task { await home4DX.connect(host: host, code: code) }
+        }
         party.library = library
         party.session = session
         party.onNeedScreening = { [weak self] item, start in self?.startPartyScreening(item: item, startAt: start) }

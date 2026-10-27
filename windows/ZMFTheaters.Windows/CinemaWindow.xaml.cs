@@ -118,6 +118,15 @@ public partial class CinemaWindow : Window
     (double x, double y, double pitch, double yaw)? rideSeat;
     double rideRoll;
     LoopbackSound? loopback;
+    // Home 4DX (V0.5): frame colour for the lighting director, pause tracking, AI guests in seats.
+    static ZMFTheaters.Home.HomeHub? Home => ZMFTheaters.Home.HomeHub.Current;
+    double avgR = 90, avgG = 90, avgB = 90, topBlue;
+    bool homeWasPlaying;
+    string? homeEvKind;
+    double homeEvTime = -10;
+    readonly Model3DGroup guestFigures = new();
+    string guestKey = "";
+    double guestTimer;
     double fxWater, fxWind, fxFlash;
     bool reclined;
     double reclineBlend;
@@ -145,7 +154,16 @@ public partial class CinemaWindow : Window
         this.shotName = shotName;
         this.shotPath = shotPath;
         featured = RotationDirector.Select(catalog, RotationDirector.PeriodIndex(DateTime.UtcNow));
-        fourDX.Detected += e => _ = tactsuit?.SendEventAsync(e.Kind, e.Strength);
+        fourDX.Detected += e =>
+        {
+            _ = tactsuit?.SendEventAsync(e.Kind, e.Strength);
+            homeEvKind = e.Kind.ToString(); homeEvTime = CurrentSeconds;   // media time of the sound event
+        };
+        if (Home is { } hub)
+        {
+            hub.ControlRequested += OnHomeControl;
+            Closed += (_, _) => hub.ControlRequested -= OnHomeControl;
+        }
         BuildScene();
         UpdateWallet();
         if (partyFilm != null)
@@ -337,7 +355,13 @@ public partial class CinemaWindow : Window
         double level = zone > 0 && ticket?.Room == zone ? house : 1;
         var strobe = fourDX.Strobe;
         double amb = 0.18 + 0.42 * level;
-        ambient.Color = Mats.C(amb + strobe * .8, amb * .93 + strobe * .78, amb * .95 + strobe * .75);
+        // The auditorium mirrors the lighting director's palette (virtual room light).
+        double tint = Home is { } hh && seated != null && ticket?.Format.Uses4DX() == true && player?.IsPlaying == true ? 0.35 : 0;
+        var lt = Home?.Director.Light ?? default;
+        double tr2 = tint > 0 ? lt.R / 255.0 * 1.3 : 1, tg2 = tint > 0 ? lt.G / 255.0 * 1.3 : 1, tb2 = tint > 0 ? lt.B / 255.0 * 1.3 : 1;
+        ambient.Color = Mats.C((amb * (1 - tint + tint * tr2)) + strobe * .8, (amb * .93 * (1 - tint + tint * tg2)) + strobe * .78, (amb * .95 * (1 - tint + tint * tb2)) + strobe * .75);
+        guestTimer += dt;
+        if (guestTimer > 1) { guestTimer = 0; UpdateGuests(); }
         Smoke.Opacity = Math.Min(0.35, fourDX.Smoke * 0.3);
 
         // Camera (with 4DX motion seat when seated). The ride/presentation
@@ -518,6 +542,7 @@ public partial class CinemaWindow : Window
         {
             case Key.E: _ = Interact(); break;
             case Key.Q: if (seated != null) Stand(); break;
+            case Key.F12: if (Home is { } hub) { _ = hub.EmergencyStopAsync("cinema F12"); Toast("EMERGENCY STOP · all home effects off (re-arm in Admin → Home 4DX)"); } break;
             case Key.R: ToggleRecline(); break;
             case Key.F: ToggleFullscreen(); break;
             case Key.Space: if (seated != null) TogglePlay(); break;
@@ -833,6 +858,13 @@ public partial class CinemaWindow : Window
                 rideRoll = c.Roll * 180 / Math.PI * 0.6;
                 water = c.Water; wind = c.Wind; flash = c.Flash;
                 _ = tactsuit?.SendAsync(c.Rumble, 0);
+                // The ride is ZMF's own content with known motion: a labelled ride timeline (not film analysis).
+                if (Home is { } hub)
+                {
+                    hub.ReportPc("zmf-coaster", "ZMF roller coaster", coasterTime, true, ZMFTheaters.Home.AnalysisSource.Ride);
+                    hub.Director.Update(new ZMFTheaters.Home.SceneInputs("zmf-coaster", coasterTime, true, ZMFTheaters.Home.AnalysisSource.Ride,
+                        c.Wind, c.Wind, Math.Min(1, c.Rumble * 2.5), 0, 0, true, 40, 40, 120, 0.25, 0.2, null, -10), dt);
+                }
             }
         }
         else if (presenter?.Active == true && presentationFormat.Uses4DX())
@@ -921,6 +953,7 @@ public partial class CinemaWindow : Window
         houseTarget = 1;
         fourDX.Reset();
         timeline.Stop();
+        Home?.PcStopped();
         lastMouseMove = DateTime.UtcNow;
     }
 
@@ -959,6 +992,11 @@ public partial class CinemaWindow : Window
                 var c = World.Xf(ticket.Room).P(3.5, 1.2, 7);
                 screenLight.Position = c;
                 screenLight.Color = Color.FromRgb((byte)(r / n), (byte)(g / n), (byte)(b / n));
+                avgR += (r / n - avgR) * 0.2; avgG += (g / n - avgG) * 0.2; avgB += (b / n - avgB) * 0.2;
+                // Sky-like top band (blue above red) hints at an exterior shot.
+                long tb = 0, tr = 0; int tn = 0;
+                for (int x = w / 16; x < w; x += w / 8) { int i = ((h / 12) * w + x) * 4; tb += frameBuf[i]; tr += frameBuf[i + 2]; tn++; }
+                topBlue += ((tn > 0 ? (tb - tr) / (255.0 * tn) : 0) - topBlue) * 0.2;
             }
         }
         if (ticket.Format.Uses4DX() && FourDXPreview.Active(config.Force4DX) && player.IsPlaying)
@@ -967,8 +1005,9 @@ public partial class CinemaWindow : Window
             fourDX.Analyse(got ? frameBuf : null, w, h, dt, config.FourDXIntensity, CurrentSeconds, loopback?.Running == true ? loopback.Drain() : null);
             timeline.Update(CurrentSeconds, true, dt);
             _ = tactsuit?.SendAsync(Math.Max(fourDX.Rumble, timeline.Level(Auto4DXTargets.Seat)), Math.Max(fourDX.Impact, timeline.Level(Auto4DXTargets.Haptics)));
+            HomeUpdate(true, dt);
         }
-        else if (!player.IsPlaying) { fourDX.Reset(); timeline.Update(CurrentSeconds, false, dt); loopback?.Drain(); }
+        else if (!player.IsPlaying) { fourDX.Reset(); timeline.Update(CurrentSeconds, false, dt); loopback?.Drain(); HomeUpdate(false, dt); }
 
         var len = Math.Max(1, player.Length / 1000.0);
         TimeText.Text = $"{Fmt(CurrentSeconds)} / {Fmt(len)}";
@@ -997,6 +1036,7 @@ public partial class CinemaWindow : Window
         player = null; frames = null; libVLC = null;
         timeline.Stop();
         loopback?.Dispose(); loopback = null;
+        Home?.PcStopped();
         if (p == null) return;
         ThreadPool.QueueUserWorkItem(_ =>
         {
@@ -1058,6 +1098,8 @@ public partial class CinemaWindow : Window
         if (party?.InGroup == true) { _ = party.SeekAsync(seconds); return; }
         player.Time = (long)(seconds * 1000);
         timeline.Seek(seconds);
+        // Seeking discards stale home effects (the fan stops; the director re-evaluates).
+        if (Home is { } hub) { hub.Director.Reset("seek"); _ = hub.Devices.SuspendAsync("seek"); }
     }
 
     // MARK: Watch party
@@ -1167,6 +1209,74 @@ public partial class CinemaWindow : Window
             enc.Save(fs);
         }
         finally { Application.Current.Shutdown(0); }
+    }
+
+    // MARK: Home 4DX
+
+    /// Feeds the scene director with this frame's analysis and reports PC playback.
+    void HomeUpdate(bool playing, double dt)
+    {
+        if (Home is not { } hub || ticket == null) return;
+        hub.ReportPc(ticket.Film.Id, ticket.Film.Title, CurrentSeconds, playing, ZMFTheaters.Home.AnalysisSource.Analysed);
+        var input = new ZMFTheaters.Home.SceneInputs(ticket.Film.Id, CurrentSeconds + hub.Config.OutputLatencyMs / 1000.0, playing, ZMFTheaters.Home.AnalysisSource.Analysed,
+            fourDX.Wind, fourDX.CameraSpeed, fourDX.SustainedLow, fourDX.SpeechShare, fourDX.Shock, fourDX.SoundAnalysis,
+            avgR, avgG, avgB, (0.2126 * avgR + 0.7152 * avgG + 0.0722 * avgB) / 255, topBlue,
+            homeEvKind, homeEvTime + hub.Config.OutputLatencyMs / 1000.0);
+        hub.Director.Update(input, dt);
+        if (homeWasPlaying && !playing) _ = hub.Devices.SuspendAsync("paused");
+        homeWasPlaying = playing;
+    }
+
+    void OnHomeControl(string action, double position) => Dispatcher.BeginInvoke(() =>
+    {
+        if (player == null) return;
+        switch (action)
+        {
+            case "play": if (!player.IsPlaying) TogglePlay(); break;
+            case "pause": if (player.IsPlaying) TogglePlay(); break;
+            case "back": SeekTo(CurrentSeconds - 10); break;
+            case "forward": SeekTo(CurrentSeconds + 30); break;
+            case "seek": SeekTo(position); break;
+        }
+        lastMouseMove = DateTime.UtcNow;
+    });
+
+    /// AI guests from a private room following this film sit next to you.
+    void UpdateGuests()
+    {
+        if (seated is not { } s || ticket == null || Home is not { } hub) { if (guestKey != "") { guestFigures.Children.Clear(); guestKey = ""; } return; }
+        var names = hub.Rooms.Rooms.Where(r => r.Playback.MediaId == ticket.Film.Id)
+            .SelectMany(r => r.Members.Where(m => m.Kind == "AI" && m.Present).Select(m => m.Name)).Distinct().Take(4).ToList();
+        var key = $"{s.room}:{s.row}:{s.seat}:{string.Join(",", names)}";
+        if (key == guestKey) return;
+        guestKey = key;
+        guestFigures.Children.Clear();
+        foreach (var g in rooms.Values) if (g.Children.Contains(guestFigures) && g != rooms[s.room]) g.Children.Remove(guestFigures);
+        if (!rooms[s.room].Children.Contains(guestFigures)) rooms[s.room].Children.Add(guestFigures);
+        var order = new[] { 1, -1, 2, -2 }.Select(o => s.seat + o).Where(x => x is >= 0 and < 8).ToList();
+        var cube = WorldBuilder.UnitBox();
+        var shirts = new[] { Mats.C(.85, .2, .35), Mats.C(.2, .5, .9), Mats.C(.6, .3, .85), Mats.C(.15, .6, .4) };
+        for (int i = 0; i < names.Count && i < order.Count; i++)
+        {
+            var p = World.SeatPosition(s.room, s.row, order[i]);
+            var xf = World.Xf(s.room);
+            void Box(double lx, double ly, double sx, double sy, double sz, Material m)
+            {
+                var c = xf.P(World.RowX(s.row) + lx, World.RowFloor(s.row) + ly, World.SeatZ(order[i]));
+                var g = new Transform3DGroup();
+                g.Children.Add(new ScaleTransform3D(sx, sy, sz));
+                g.Children.Add(new TranslateTransform3D(c.X, c.Y, c.Z));
+                guestFigures.Children.Add(new GeometryModel3D(cube, m) { Transform = g, BackMaterial = m });
+            }
+            var shirt = Mats.Lit(shirts[i % shirts.Length]);
+            Box(0.12, 0.88, 0.26, 0.58, 0.44, shirt);                       // torso
+            Box(0.1, 1.3, 0.24, 0.26, 0.22, Mats.Lit(Mats.C(.8, .62, .5)));  // head
+            Box(-0.2, 0.6, 0.5, 0.16, 0.4, Mats.Lit(Mats.C(.15, .17, .25))); // legs
+            var tag = new MeshBuilder3D { Xf = xf };
+            tag.Sign(World.RowX(s.row) + 0.1, World.RowFloor(s.row) + 1.75, World.SeatZ(order[i]), -1, 0, 0, 0.72, 0.18,
+                Mats.Picture(Mats.Text("AI · " + names[i], 384, 96, Colors.White, Mats.C(.0, .45, .5), 44)));
+            guestFigures.Children.Add(tag.Build());
+        }
     }
 }
 

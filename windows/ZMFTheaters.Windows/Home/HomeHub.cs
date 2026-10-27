@@ -105,6 +105,7 @@ public sealed class HomeHub : IAsyncDisposable
             // Director already updated by the cinema render loop with live analysis.
             Devices.Apply(Director, pc.Position);
             SyncRooms(pc);
+            wasActive = true;
             return;
         }
         if (PhonePlayback is { } ph && now - ph.ServerTimeMs < 4000)
@@ -122,10 +123,21 @@ public sealed class HomeHub : IAsyncDisposable
                 PhoneNote = "No analysed 4DX timeline for this title yet — play it once in Auto 4DX on the PC. Physical effects stay off (nothing is scripted in its place).";
             }
             SyncRooms(ph with { Position = pos });
+            wasActive = true;
             return;
         }
         PhoneNote = "";
+        // Nothing is playing any more (ride ended, player closed, phone gone):
+        // automated effects go off — nothing keeps running on its own.
+        if (wasActive)
+        {
+            wasActive = false;
+            Director.Cancel("no active playback");
+            _ = Devices.SuspendAsync("no active playback");
+        }
     }
+
+    bool wasActive;
 
     public string PhoneNote { get; private set; } = "";
 

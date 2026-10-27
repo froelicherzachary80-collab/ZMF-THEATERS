@@ -48,6 +48,7 @@
                 <Button Style="{StaticResource NavButton}" Content="👥  Watch Parties" Click="OnNav" Tag="Parties"/>
                 <Button Style="{StaticResource NavButton}" Content="🎞  Presentations" Click="OnNav" Tag="Presentations"/>
                 <Button Style="{StaticResource NavButton}" Content="🖥  Servers" Click="OnNav" Tag="Servers"/>
+                <Button Style="{StaticResource NavButton}" Content="⚙  Admin" Click="OnNav" Tag="Admin"/>
                 <Border BorderBrush="#4DD0E1" BorderThickness="1" CornerRadius="10" Padding="10" Margin="8,20,8,0">
                     <StackPanel>
                         <TextBlock Text="ZMF 4DX PREVIEW" FontWeight="Black" Foreground="#4DD0E1"/>
@@ -160,6 +161,21 @@
                     <TextBlock x:Name="ConnectStatus" TextWrapping="Wrap" Margin="0,8,0,0"/>
                 </StackPanel>
             </Border>
+        </Grid>
+
+        <!-- Admin -->
+        <Grid x:Name="AdminPanel" Grid.Column="1" Margin="22,18,18,0" Visibility="Collapsed">
+            <StackPanel MaxWidth="760" HorizontalAlignment="Left">
+                <TextBlock Text="ADMIN" FontSize="26" FontWeight="Black" Foreground="{StaticResource GoldBrush}"/>
+                <Border Background="{StaticResource PanelBrush}" CornerRadius="14" Padding="18" Margin="0,12,0,0" BorderBrush="#4DD0E1" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="IMMERSIVE HOME 4DX" FontSize="20" FontWeight="Black" Foreground="#4DD0E1"/>
+                        <TextBlock TextWrapping="Wrap" Foreground="{StaticResource DimTextBrush}" Margin="0,6,0,10"
+                                   Text="Turn this cinema into a home 4DX room with devices you own: Tapo P125M smart plugs (wind fan), your Govee RGBIC strip, private cinema rooms with real and AI guests, the iPhone companion, a hardware testing laboratory and a global emergency stop."/>
+                        <Button Style="{StaticResource GoldButton}" Content="Open Immersive Home 4DX" Click="OnAdminHome4DX" HorizontalAlignment="Left" Padding="16,10"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
         </Grid>
 
         <!-- YouTube presentations & preshow -->

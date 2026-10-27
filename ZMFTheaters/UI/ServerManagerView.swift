@@ -12,6 +12,7 @@ struct ServerManagerView: View {
                 Text("Connect as many personal Jellyfin servers as you like. Passwords and access tokens are stored only in the iOS Keychain, and each token is only ever sent to the server that issued it. Nothing on your servers is ever modified or deleted.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Home4DXSection(link: model.home4DX)
             ForEach(library.servers) { server in
                 ServerRow(server: server, onEdit: { editing = server })
             }
@@ -161,6 +162,41 @@ struct ServerEditor: View {
             password = ""
         } catch {
             message = error.localizedDescription
+        }
+    }
+}
+
+/// Connect to the Windows PC that runs Home 4DX (fan + lights). The access
+/// code is shown on the PC in Admin → Immersive Home 4DX → PC + iPhone Companion.
+private struct Home4DXSection: View {
+    @EnvironmentObject var settingsStore: SettingsStore
+    @ObservedObject var link: Home4DXLink
+    @State private var code = Keychain.get(Home4DXLink.codeKey) ?? ""
+
+    var body: some View {
+        Section {
+            TextField("PC address, e.g. 192.168.1.20:8977", text: $settingsStore.settings.home4DXHost)
+                .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+            SecureField("Access code from the PC", text: $code)
+                .textInputAutocapitalization(.characters).autocorrectionDisabled()
+            HStack {
+                Button(link.connected ? "Reconnect" : "Connect") {
+                    Keychain.set(code, for: Home4DXLink.codeKey)
+                    let host = settingsStore.settings.home4DXHost
+                    Task { await link.connect(host: host, code: code) }
+                }
+                Spacer()
+                Button(role: .destructive) { Task { await link.emergencyStop() } } label: {
+                    Label("Emergency stop", systemImage: "stop.circle.fill")
+                }.disabled(!link.connected)
+            }
+            Text(link.status).font(.caption).foregroundStyle(link.connected ? .green : .secondary)
+            if !link.hostNote.isEmpty { Text(link.hostNote).font(.caption2).foregroundStyle(.orange) }
+            Toggle("Connect automatically", isOn: $settingsStore.settings.home4DXAutoConnect)
+        } header: {
+            Text("Home 4DX (Windows PC)")
+        } footer: {
+            Text("While you watch on this iPhone, the PC keeps your real fan and lights in sync by replaying the 4DX timeline it analysed for that film. Titles the PC has never analysed get no physical effects. For the full controls open http://YOUR-PC:8977/companion in Safari.")
         }
     }
 }

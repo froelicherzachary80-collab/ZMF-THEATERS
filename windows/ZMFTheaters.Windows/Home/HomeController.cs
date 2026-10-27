@@ -242,6 +242,16 @@ public sealed class HomeController : IAsyncDisposable
         Changed?.Invoke();
     }
 
+    /// Re-evaluates the strip's state after the colour test.
+    public void AttachLightStateRefresh()
+    {
+        if (light == null) return;
+        Devices["GOVEE"].State = light.IsMock ? DeviceState.Simulated : cfg.Light.ColorVerified ? DeviceState.ConnectedTested : DeviceState.ConnectedUnverified;
+        Devices["GOVEE"].Name = cfg.Light.Model.Length > 0 ? "Govee " + cfg.Light.Model : "Govee RGBIC strip";
+        Devices["GOVEE"].Detail = GoveeProtocol.Describe(cfg.Light.Variant);
+        Changed?.Invoke();
+    }
+
     public async Task<GoveeBle?> ConnectLightAsync(ulong address, CancellationToken ct)
     {
         var ble = new GoveeBle(address);
