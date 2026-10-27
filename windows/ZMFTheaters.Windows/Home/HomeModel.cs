@@ -55,10 +55,16 @@ public sealed class HomePlug
     /// power was restored, false = it did not (automation stays disabled).
     public bool? FanRestartVerified { get; set; }
     public DateTime? FanTestedAt { get; set; }
+    /// For a strip on TAPO_02: did it power back up without pressing the controller?
+    /// Never inferred from a successful plug command or a Bluetooth write.
+    public bool? LightPowerRestoreVerified { get; set; }
+    public DateTime? LightPowerTestedAt { get; set; }
     /// Safety cutoff for continuous on-time.
     public int MaxOnSeconds { get; set; } = 900;
 
     [JsonIgnore] public bool IsWind => Role == "MAIN_WIND";
+    [JsonIgnore] public bool IsLightPower => Role == "GOVEE_POWER";
+    [JsonIgnore] public bool LightPowerAutomationAllowed => IsLightPower && Authorized && !Essential && PlugTestPassed && LightPowerRestoreVerified == true;
     /// Automatic wind runs only after a successful restart test on an authorized, non-essential plug.
     [JsonIgnore] public bool WindAutomationAllowed => IsWind && Authorized && !Essential && PlugTestPassed && FanRestartVerified == true;
 }
@@ -74,6 +80,9 @@ public sealed class HomeLight
     /// The user saw the strip change blue → green → red in the colour test.
     public bool ColorVerified { get; set; }
     public bool Authorized { get; set; }
+    /// Fallback when this exact model's Bluetooth colours are unsupported:
+    /// Tapo supplies on/off only. No scene-colour claims.
+    public bool PowerOnly { get; set; }
 }
 
 public enum EffectLevel { Gentle, Standard, Intense, Extreme }
@@ -87,7 +96,7 @@ public sealed class HomeConfig
     public List<HomePlug> Plugs { get; set; } = new()
     {
         new HomePlug { Slot = "TAPO_01", Role = "MAIN_WIND" },
-        new HomePlug { Slot = "TAPO_02", Role = "AUXILIARY_EFFECT" },
+        new HomePlug { Slot = "TAPO_02", Role = "GOVEE_POWER", MaxOnSeconds = 14400 },
         new HomePlug { Slot = "TAPO_03", Role = "FUTURE_EFFECT" },
     };
     public HomeLight Light { get; set; } = new();
@@ -123,8 +132,14 @@ public sealed class HomeConfig
 
     public void Migrate()
     {
-        foreach (var slot in new[] { ("TAPO_01", "MAIN_WIND"), ("TAPO_02", "AUXILIARY_EFFECT"), ("TAPO_03", "FUTURE_EFFECT") })
+        foreach (var slot in new[] { ("TAPO_01", "MAIN_WIND"), ("TAPO_02", "GOVEE_POWER"), ("TAPO_03", "FUTURE_EFFECT") })
             if (!Plugs.Any(p => p.Slot == slot.Item1)) Plugs.Add(new HomePlug { Slot = slot.Item1, Role = slot.Item2 });
+        // Upgrade v0.5.0's spare slot, but preserve user-defined roles.
+        foreach (var p in Plugs.Where(p => p.Slot == "TAPO_02" && p.Role == "AUXILIARY_EFFECT"))
+        {
+            p.Role = "GOVEE_POWER";
+            if (p.MaxOnSeconds == 900) p.MaxOnSeconds = 14400;
+        }
         Plugs = Plugs.OrderBy(p => p.Slot).ToList();
         Light ??= new HomeLight();
     }

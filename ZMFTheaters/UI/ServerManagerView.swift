@@ -191,12 +191,22 @@ private struct Home4DXSection: View {
                 }.disabled(!link.connected)
             }
             Text(link.status).font(.caption).foregroundStyle(link.connected ? .green : .secondary)
+            if link.connected {
+                HStack {
+                    Label(link.stopped ? "EMERGENCY STOP" : link.physicalArmed ? "PHYSICAL ARMED" : "PHYSICAL OFF",
+                          systemImage: link.stopped ? "stop.circle.fill" : "power")
+                    Spacer()
+                    Button("Refresh devices") { Task { await link.refreshEquipment() } }
+                }.font(.caption)
+                Text(link.equipmentStatus).font(.caption2).monospacedDigit()
+                    .foregroundStyle(.secondary)
+            }
             if !link.hostNote.isEmpty { Text(link.hostNote).font(.caption2).foregroundStyle(.orange) }
             Toggle("Connect automatically", isOn: $settingsStore.settings.home4DXAutoConnect)
         } header: {
             Text("Home 4DX (Windows PC)")
         } footer: {
-            Text("While you watch on this iPhone, the PC keeps your real fan and lights in sync by replaying the 4DX timeline it analysed for that film. Titles the PC has never analysed get no physical effects. For the full controls open http://YOUR-PC:8977/companion in Safari.")
+            Text("Your Windows PC is the only real hardware controller. TAPO_01 switches a tested Sweetfull fan; TAPO_02 switches power to the tested Govee strip. Bluetooth (on the PC) handles RGB colour once the strip is powered. TAPO_03 remains unassigned. Sync requires the PC's analysed title timeline and a trusted local network; guests cannot switch equipment.")
         }
     }
 }

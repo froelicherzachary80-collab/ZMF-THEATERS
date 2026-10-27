@@ -315,13 +315,14 @@ public sealed class HomeControlWindow : Window
             p.Children.Add(Ui.Card(
                 Ui.Row(new TextBlock { Text = $"{pl.Slot} · {pl.Role}", FontWeight = FontWeights.Bold, FontSize = 15, Foreground = Ui.Text, Margin = new Thickness(0, 0, 10, 0) },
                     Ui.Chip(hub.Devices.Devices[pl.Slot].StateLabel, Ui.For(hub.Devices.Devices[pl.Slot].State))),
-                Ui.P(pl.Role == "MAIN_WIND" ? "Main wind: Sweetfull S36 on a suitable USB wall adapter. Automated only after the fan restart test passes." :
-                     "Unassigned until compatible hardware is available — never automated by the director.", Ui.Dim, 12),
+                Ui.P(pl.IsWind ? "Sweetfull fan on a suitable adapter. Automated only after the fan power-restore test passes." :
+                     pl.IsLightPower ? "Govee RGBIC strip POWER SOURCE. This Tapo plug provides ON/OFF only; validated Bluetooth handles colour after a 3-second reboot window. Never plug the PC/router into it." :
+                     "Future effect: not yet automated by the director.", Ui.Dim, 12),
                 Ui.Row(new TextBlock { Text = "Attached device ", Foreground = Ui.Dim, VerticalAlignment = VerticalAlignment.Center }, attached),
                 Ui.Row(new TextBlock { Text = "Safety cutoff (max continuous on, s) ", Foreground = Ui.Dim, VerticalAlignment = VerticalAlignment.Center }, maxOn),
                 Ui.Check("Authorize this plug for ZMF control", pl.Authorized, v => { pl.Authorized = v; save(); }),
                 Ui.Check("This plug powers essential equipment (PC, router, heater, medical…) — never switch it", pl.Essential, v => { pl.Essential = v; if (v) pl.Authorized = false; save(); Show(section); }),
-                Ui.P($"Plug control test: {(pl.PlugTestPassed ? "passed" : "not yet")} · Fan restart test: {(pl.FanRestartVerified switch { true => "PASSED", false => "FAILED (fan does not resume — automation disabled)", _ => "not tested" })}", Ui.Text, 12)));
+                Ui.P($"Plug test: {(pl.PlugTestPassed ? "passed" : "not yet")} · {(pl.IsLightPower ? "Govee power-restore" : "Fan restart")} test: {(pl.IsLightPower ? pl.LightPowerRestoreVerified : pl.FanRestartVerified) switch { true => "PASSED", false => "FAILED (automatic power disabled)", _ => "not tested" }}", Ui.Text, 12)));
         }
     }
 
@@ -350,6 +351,17 @@ public sealed class HomeControlWindow : Window
                 Ui.Btn("Confirm model", (_, _) => { l.Model = model.Text.Trim().ToUpperInvariant(); l.ModelConfirmed = l.Model.StartsWith("H"); save(); Show(section); }, true)),
             Ui.P("Community status: " + GoveeProtocol.CommunityStatus(l.ModelConfirmed ? l.Model : null), Ui.Amber, 12)));
 
+        p.Children.Add(Ui.Sub("TAPO_02 · Govee master power"));
+        var source = hub.Config.Plugs.FirstOrDefault(x => x.IsLightPower);
+        if (source != null)
+        {
+            var sourceState = hub.Devices.Devices[source.Slot];
+            p.Children.Add(Ui.Card(
+                Ui.P($"{source.Slot} ({source.Nickname}) · {sourceState.StateLabel} · reported power: {(sourceState.ReportedOn == true ? "ON" : sourceState.ReportedOn == false ? "OFF" : "UNKNOWN")}", Ui.Text),
+                Ui.P("Connect only the Govee light strip's compatible power adapter. You must confirm that its lights actually come back after power is cut and restored. The smart plug cannot set RGBIC colours; the validated Bluetooth controller does that.", Ui.Dim, 12),
+                Ui.P($"Plug control test: {(source.PlugTestPassed ? "PASS" : "not completed")} · power-restore test: {(source.LightPowerRestoreVerified switch { true => "PASS", false => "FAIL", _ => "not completed" })}", Ui.Text, 12),
+                Ui.Btn("Verify Govee power restoration", async (_, _) => await LightPowerRestoreTest(), true)));
+        }
         p.Children.Add(Ui.Sub("Step 2 · Connect and find a working colour protocol"));
         var status = Ui.P(hub.Devices.Devices["GOVEE"].Detail, Ui.Dim, 12);
         var testRow = Ui.Row();
@@ -360,6 +372,10 @@ public sealed class HomeControlWindow : Window
         }
         p.Children.Add(Ui.Card(
             Ui.P("Govee publishes no local Bluetooth API. ZMF uses community-documented packets, which differ between models. Each test turns the strip blue → green → red; you confirm what you saw. Automatic lighting stays off until a test is confirmed.", Ui.Dim, 12),
+            Ui.Check("Use Tapo power-only lighting (if my Govee model cannot use BLE colours)", l.PowerOnly,
+                v => { l.PowerOnly = v; save(); }),
+            Ui.P(l.PowerOnly ? "POWER ONLY: Tapo turns the Govee adapter on for a film and off on pause/stop. Colours do NOT follow scenes in this mode." :
+                "SCENE COLOURS: Bluetooth commands follow video analysis AFTER Tapo reports source power on. Requires a verified BLE colour test.", Ui.Amber, 12),
             Ui.Row(Ui.Btn("Connect via Bluetooth", async (_, _) =>
             {
                 if (l.Address == 0) { Ui.Tell(this, "Govee", "Select a strip in Smart Device Discovery first."); return; }
@@ -407,6 +423,49 @@ public sealed class HomeControlWindow : Window
         }
         else hub.Config.TestResults["T5"] = $"FAIL {DateTime.Now:g} · variant {GoveeProtocol.Describe(v)} did not change the strip";
         save();
+        Show(section);
+    }
+
+    async Task LightPowerRestoreTest()
+    {
+        var source = hub.Config.Plugs.FirstOrDefault(p => p.IsLightPower);
+        if (source == null) { Ui.Tell(this, "Govee power", "No Tapo plug has the GOVEE_POWER role."); return; }
+        if (!source.Authorized || source.Essential || !source.PlugTestPassed)
+        {
+            Ui.Tell(this, "Govee power", "Connect TAPO_02 in Discovery, authorize it, and pass the plug control test first.");
+            return;
+        }
+        if (!Ui.Ask(this, "Govee power test",
+            "Confirm TAPO_02 powers ONLY the Govee LED strip's approved adapter. It must never control the PC, router, medical devices or other essential equipment. Switch the strip on in Govee Home first. Start the power-restoration test?")) return;
+        bool resumed = false;
+        try
+        {
+            if (!await hub.Devices.SetPlugAsync(source.Slot, true, "Govee power test: on", life.Token))
+            {
+                Ui.Tell(this, "Govee power", "Unable to power the strip using TAPO_02.");
+                return;
+            }
+            if (!Ui.Ask(this, "Govee test 1/2", "Are the physical Govee lights illuminated NOW?")) return;
+            if (!await hub.Devices.SetPlugAsync(source.Slot, false, "Govee power test: off", life.Token)) return;
+            await Task.Delay(5000, life.Token);
+            if (!await hub.Devices.SetPlugAsync(source.Slot, true, "Govee power test: restore", life.Token)) return;
+            await Task.Delay(3500, life.Token);
+            resumed = Ui.Ask(this, "Govee test 2/2",
+                "Did the REAL Govee lights turn back on automatically, without pressing buttons or opening the Govee app?");
+            source.LightPowerRestoreVerified = resumed;
+            source.LightPowerTestedAt = DateTime.Now;
+            hub.Config.TestResults["T13"] = (resumed ? "PASS" : "FAIL") +
+                $" {DateTime.Now:g} · physically confirmed by you · LED power recovery";
+            save();
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            // Never leave a test appliance powered because a wizard was closed.
+            try { await hub.Devices.SetPlugAsync(source.Slot, false, "Govee power test finished", CancellationToken.None); }
+            catch { }
+            save();
+        }
         Show(section);
     }
 
@@ -579,6 +638,11 @@ public sealed class HomeControlWindow : Window
             ("T10", "Private cinema — an authenticated guest joins a room", async () => await WatchFor("a real guest is present", () => hub.Rooms.Rooms.Any(r => r.Members.Any(m => m.Kind == "Guest" && m.Present)), 300, null)),
             ("T11", "AI guest — joins and replies to a message", AiGuestTest),
             ("T12", "Emergency stop — everything off, automation disabled", EStopTest),
+            ("T13", "Govee Tapo-power restoration (visual confirmation)", async () =>
+            {
+                await LightPowerRestoreTest();
+                return hub.Config.TestResults.GetValueOrDefault("T13", "AWAITING HARDWARE");
+            }),
         };
         foreach (var (id, name, run) in tests)
         {
@@ -694,7 +758,7 @@ public sealed class HomeControlWindow : Window
         p.Children.Add(Ui.Row(Ui.Btn("Re-arm automation", (_, _) => { hub.Devices.Rearm(); Show(section); }, true), Ui.P(hub.Devices.EmergencyStopped ? "Emergency stop is ACTIVE." : "Automation is armed according to your settings.", hub.Devices.EmergencyStopped ? Ui.Red : Ui.Green)));
         p.Children.Add(Ui.Card(
             Ui.P("Built-in protections", Ui.Gold),
-            Ui.P("• Emergency stop: here, F12 in the cinema, the phone companion and the iPhone app. Cancels scheduled commands, switches authorized plugs off, sets lights to dim warm white and blocks automation until re-armed.\n• Only plugs you authorize are switched; plugs marked as essential equipment are never switched.\n• Wind requires a passed fan restart test. Minimum 8 s on / 12 s off, ≤30 switches per hour, continuous-on cutoff, duplicate commands suppressed, 4 s command timeout, automatic reconnect.\n• Pause, stop, seek and end of film turn the fan off immediately.\n• Lights: bounded brightness, smooth transitions, reduced/no-flash modes, no strobing.\n• Companion and rooms require an access code or invite; guests can never control devices.", Ui.Text, 12)));
+            Ui.P("• Emergency stop: here, F12 in cinema, the phone companion and iPhone. The app turns off authorized plugs after attempting a warm LED colour, and blocks automatic re-start until re-armed.\n• TAPO_01 powers Sweetfull wind, TAPO_02 powers Govee RGBIC (only if explicitly authorized and physically verified), TAPO_03 is reserved. No critical loads may be switched.\n• Wind requires a verified fan restart: ≥8s on, ≥12s off, ≤30 switches/hour. Govee source: ≥30s on, ≥60s off, ≤10 switches/hour. Each has a continuous-on cutoff, deduplication and command verification.\n• Pause, stop, playback loss and emergency stop disconnect authorized fan AND Govee power. BLE colours only work after source power is confirmed.\n• Brightness: bounded, smoothed, reduced/no flash, no strobe. Guest accounts cannot control real devices.", Ui.Text, 12)));
         p.Children.Add(Ui.Card(
             Ui.P("Always", Ui.Red),
             Ui.P("• If ZMF crashes or the PC is off, switch devices with the Tapo app, Apple Home, or the plug's own button, and the Govee app or strip controller.\n• Never put the PC, router, heaters, medical or other essential equipment on an automated plug.\n• Respect each device's load limits (motor loads are lower than the plug's 15 A general rating).\n• No mains wiring changes, no opening the fan, no liquid/mist effects near electronics, no improvised motion chairs.", Ui.Text, 12)));

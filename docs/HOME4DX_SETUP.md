@@ -168,3 +168,24 @@ In a room, click **+ Nova / + Alex / + Mia / + Jordan (AI)**:
 - It cancels scheduled commands, switches every authorized plug **off**, sets the strip to dim warm white, and blocks automation until you click **Re-arm**.
 - **Virtual-only mode** or unticking **Arm physical effects** stops physical commands permanently.
 - If ZMF is closed or crashed, use the **Tapo app**, **Apple Home**, the plug's own button, the **Govee app**, or simply unplug the device.
+
+
+## V0.5.1 — Tapo power-source automation (2026-10-27)
+
+This update starts from successful iOS workflow run [40477918617](https://github.com/froelicherzachary80-collab/ZMF-THEATERS/actions/runs/40477918617) on branch `feature/v0.5.0-home-4dx-genesis` (commit `c2507cdf`). Both platforms are built by their existing GitHub Actions workflows; the iOS artifact is **unsigned** (install with a legitimate signing/sideloading method). CI has no physical smart plugs or lights and cannot verify your real hardware.
+
+### Power chain — supported equipment
+
+1. **TAPO_01 = MAIN_WIND:** approved Sweetfull fan USB adapter ONLY. Verify power loss/recovery physically; many USB button fans **do not** auto-restart, so power-only automation might not work. Plug switch means **on/off**, not speed control.
+2. **TAPO_02 = GOVEE_POWER:** Govee RGBIC LED strip's *approved* wall adapter ONLY. Pair strip's Bluetooth directly to the Windows PC in **Smart Device Discovery**, confirm H-model and run the **BLUE → GREEN → RED** colour test. Run the **Govee power restoration** wizard. Only after the plug test, power-restoration test, authorizations and BLE colour test pass can the director power the strip on and send colour/brightness commands. Do not assume all RGBIC models support this community-documented Bluetooth protocol; RGBIC segments require a validated protocol.
+3. **TAPO_03 = FUTURE_EFFECT:** reserved; never driven by the automatic director in this version.
+
+In Windows: **Admin → Immersive Home 4DX** → Discover and configure the three Tapo slots → mark any plug powering essential equipment as Essential → authorize individual compatible devices → run T2 plug control tests → run T3 Sweetfull restart test and new T13 Govee restoration test → configure and confirm Govee colour protocol → arm Physical Effects. Launch an Auto 4DX screening with decodable picture/sound. The PC runs analysis, Tapo KLAP local power commands and Govee Bluetooth; the iPhone app reports the same title's playback position and displays a read-only status for Tapo / Govee, with emergency stop. Playback on iPhone requires the PC to have recorded a title timeline previously; unsupported web streams cannot magically produce hardware scene-analysis signals.
+
+**Safety / limits:** Tapo controls **mains power**, not arbitrary voltage, dimming or motor speed. Confirm load and adapter ratings. No PC, router, medical device, heater or other essential load on automated plugs. Govee needs a 3-second reboot window before BLE colour writes after plug ON. Light source is power-gated at minimum 30 seconds on, 60 seconds off, 10 switches/hour, 4 hours continuous ON. Fan has separate minimum 8 seconds on, 12 seconds off and 30 switches/hour. Pause/stop/connection loss removes power from both authorized effects; manual override in manufacturer apps is always possible. If Windows crashes or home Wi-Fi drops, software OFF is not guaranteed; use the physical plug button or Tapo app immediately. No rapid strobes, hot elements, homemade mains modifications or unsupervised liquid/mist hardware.
+
+For **testing**: CI's simulated end-to-end power-chain checks are always labelled MOCK. On your real equipment the Windows **Testing Laboratory** requires explicit physical confirmation; only then display CONNECTED—TESTED.
+
+### No RGBIC Bluetooth control on your strip?
+
+In **Lighting and Color Control**, choose **Use Tapo power-only lighting**. Once the Tapo plug passes its control and Govee power-restoration tests, the strip powers on for analysed playback and off for pause/stop. This does **not** automatically change the colours scene-by-scene. Disable power-only mode only if the Govee colour wizard visibly validates the specific model and its BLE protocol. The PC retries a previously verified BLE connection after source power recovers, rather than silently claiming that lights changed.

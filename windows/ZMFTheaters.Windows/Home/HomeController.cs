@@ -39,8 +39,14 @@ public sealed class MockPlug : IPlugTransport
     public bool On { get; private set; }
     public int Commands { get; private set; }
     public bool Fail { get; set; }
+    public int DelayMs { get; set; } // simulate a slow Tapo response / in-flight ON
     public Task<TapoInfo> GetInfoAsync(CancellationToken ct) => Fail ? throw new TapoException("mock unreachable") : Task.FromResult(new TapoInfo(On, "MOCK-P125M", "Mock plug", "00:00:00:00:00:00", "mock", "mock", -40));
-    public Task SetOnAsync(bool on, CancellationToken ct) { if (Fail) throw new TapoException("mock unreachable"); On = on; Commands++; return Task.CompletedTask; }
+    public async Task SetOnAsync(bool on, CancellationToken ct)
+    {
+        if (DelayMs > 0) await Task.Delay(DelayMs, ct);
+        if (Fail) throw new TapoException("mock unreachable");
+        On = on; Commands++;
+    }
     public bool IsMock => true;
     public void Dispose() { }
 }
@@ -84,6 +90,9 @@ public sealed class HomeController : IAsyncDisposable
     readonly ConcurrentDictionary<string, PowerGate> gates = new();
     readonly ConcurrentDictionary<string, SemaphoreSlim> locks = new();
     readonly ConcurrentDictionary<string, bool> inflight = new();
+    // Every pause/stop/estop invalidates already-in-flight automatic ON
+    // requests, even when the plug had not acknowledged ON yet.
+    readonly ConcurrentDictionary<string, int> cancelledGeneration = new();
     ILightTransport? light;
     readonly ConcurrentQueue<TelemetryEntry> telemetry = new();
     public Dictionary<string, DeviceStatus> Devices { get; } = new();
@@ -94,7 +103,10 @@ public sealed class HomeController : IAsyncDisposable
     public static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(4);
     (byte r, byte g, byte b, double bright)? lastLight;
     DateTime lastLightWrite = DateTime.MinValue;
+    DateTime lightPowerReadyAt = DateTime.MinValue;
     bool lightWriteBusy;
+    int lightReconnectBusy;
+    DateTime nextLightReconnect = DateTime.MinValue;
 
     public HomeController(HomeConfig cfg, Action save)
     {
@@ -116,7 +128,17 @@ public sealed class HomeController : IAsyncDisposable
         Changed?.Invoke();
     }
 
-    PowerGate Gate(string slot) => gates.GetOrAdd(slot, _ => new PowerGate { MaxOnSeconds = Plug(slot).MaxOnSeconds });
+    PowerGate Gate(string slot) => gates.GetOrAdd(slot, _ =>
+    {
+        var p = Plug(slot);
+        return new PowerGate
+        {
+            MaxOnSeconds = p.MaxOnSeconds,
+            MinOnSeconds = p.IsLightPower ? 30 : 8,
+            MinOffSeconds = p.IsLightPower ? 60 : 12,
+            MaxSwitchesPerHour = p.IsLightPower ? 10 : 30,
+        };
+    });
 
     /// Simulation (tests / no hardware): every device is a mock and shows SIMULATED.
     public void UseMocks(MockPlug? plug = null, MockLight? strip = null)
@@ -192,7 +214,9 @@ public sealed class HomeController : IAsyncDisposable
     {
         var p = Plug(slot);
         var st = Devices[slot];
+        var requestGeneration = cancelledGeneration.GetOrAdd(slot, 0);
         if (p.Essential) { Log(slot, on ? "ON" : "OFF", "refused: marked essential equipment", -1); return false; }
+        if (!p.Authorized && !SimulationMode) { Log(slot, on ? "ON" : "OFF", "refused: plug not authorized", -1); return false; }
         if (on && EmergencyStopped) { Log(slot, "ON", "refused: emergency stop active", -1); return false; }
         if (!manual)
         {
@@ -207,9 +231,12 @@ public sealed class HomeController : IAsyncDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
         timeout.CancelAfter(CommandTimeout);
         var sw = Stopwatch.StartNew();
+        bool undoStaleOn = false;
         st.LastCommand = $"{(on ? "ON" : "OFF")} · {reason}";
         try
         {
+            // An ON queued before emergency stop must not execute afterwards.
+            if (on && EmergencyStopped) return false;
             await t.SetOnAsync(on, timeout.Token);
             // Acknowledgement = the plug's own reported state afterwards.
             var info = await t.GetInfoAsync(timeout.Token);
@@ -217,7 +244,19 @@ public sealed class HomeController : IAsyncDisposable
             st.LatencyMs = ms; st.ReportedOn = info.On; st.LastSeen = Clock(); st.LastError = "";
             var ok = info.On == on;
             st.LastAck = ok ? $"plug reports {(info.On ? "ON" : "OFF")}" : $"plug reports {(info.On ? "ON" : "OFF")} (mismatch)";
-            if (ok) Gate(slot).Commit(on, Clock());
+            if (ok)
+            {
+                Gate(slot).Commit(on, Clock());
+                undoStaleOn = on && !manual &&
+                    requestGeneration != cancelledGeneration.GetOrAdd(slot, 0);
+                if (p.IsLightPower)
+                {
+                    // After a mains interruption the strip must reboot and BLE
+                    // needs time to reconnect. Always resend its current colour.
+                    lastLight = null;
+                    lightPowerReadyAt = on ? Clock().AddSeconds(3) : DateTime.MaxValue;
+                }
+            }
             Log(slot, on ? "ON" : "OFF", (t.IsMock ? "[SIMULATED] " : "") + st.LastAck, ms, mediaTime, confidence, scene, reason);
             return ok;
         }
@@ -229,7 +268,17 @@ public sealed class HomeController : IAsyncDisposable
             _ = Task.Run(() => ReconnectAsync(slot, CancellationToken.None));
             return false;
         }
-        finally { lk.Release(); inflight.TryRemove(slot, out _); Changed?.Invoke(); }
+        finally
+        {
+            lk.Release();
+            inflight.TryRemove(slot, out _);
+            Changed?.Invoke();
+            // Compensating OFF after any late acknowledgement of an
+            // automatic ON that the player already cancelled.
+            if (undoStaleOn)
+                _ = Task.Run(() => SendPlugAsync(slot, false, "cancelled stale ON after pause/stop",
+                    CancellationToken.None, true, true, double.NaN, 0, ""));
+        }
     }
 
     // MARK: Lighting
@@ -280,8 +329,37 @@ public sealed class HomeController : IAsyncDisposable
     /// after the colour test succeeded on this strip.
     public void RequestLight(LightTarget t, double mediaTime, string scene)
     {
-        if (EmergencyStopped || !cfg.PhysicalEnabled || cfg.VirtualOnly || light == null) return;
+        if (EmergencyStopped || !cfg.PhysicalEnabled || cfg.VirtualOnly) return;
+        if (cfg.Light.PowerOnly) return; // Tapo source ON/OFF only, no colour claims.
+        // Power is sourced through TAPO_02. Never claim colour automation is
+        // active while that plug is off, unverified, or not assigned.
+        var source = cfg.Plugs.FirstOrDefault(p => p.IsLightPower);
+        if (source == null || !Gate(source.Slot).IsOn || Clock() < lightPowerReadyAt) return;
+        if (!SimulationMode && !source.LightPowerAutomationAllowed) return;
         if (!SimulationMode && (!cfg.Light.Authorized || !cfg.Light.ColorVerified)) return;
+        // Power cycling a light often drops Bluetooth pairing. If the exact
+        // strip was previously paired and verified, retry safely in the
+        // background after the source has finished rebooting.
+        if (light == null)
+        {
+            if (!SimulationMode && cfg.Light.Address != 0 &&
+                Clock() >= nextLightReconnect &&
+                Interlocked.CompareExchange(ref lightReconnectBusy, 1, 0) == 0)
+            {
+                nextLightReconnect = Clock().AddSeconds(15);
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var attached = await ConnectLightAsync(cfg.Light.Address, CancellationToken.None);
+                        if (attached != null) lastLight = null;
+                    }
+                    catch { /* status is surfaced in diagnostics; retry later */ }
+                    finally { Interlocked.Exchange(ref lightReconnectBusy, 0); }
+                });
+            }
+            return;
+        }
         var now = Clock();
         if (lightWriteBusy || (now - lastLightWrite).TotalMilliseconds < 250) return;
         var bright = Math.Round(t.Brightness, 2);
@@ -294,8 +372,14 @@ public sealed class HomeController : IAsyncDisposable
         {
             try
             {
-                await WriteLightAsync(GoveeProtocol.Color(t.R, t.G, t.B, v), $"colour {t.Palette} #{t.R:X2}{t.G:X2}{t.B:X2} @ {mediaTime:0.0}s", CancellationToken.None);
-                await WriteLightAsync(GoveeProtocol.Brightness(bright, v), $"brightness {bright:P0}", CancellationToken.None);
+                // A BLE write can fail while the strip reboots after a Tapo
+                // power-on. Retry the same target next tick, not a false success.
+                if (EmergencyStopped || !Gate(source.Slot).IsOn) return;
+                var colourAck = await WriteLightAsync(GoveeProtocol.Color(t.R, t.G, t.B, v), $"colour {t.Palette} #{t.R:X2}{t.G:X2}{t.B:X2} @ {mediaTime:0.0}s", CancellationToken.None);
+                if (colourAck < 0) { lastLight = null; return; }
+                if (EmergencyStopped || !Gate(source.Slot).IsOn) return;
+                var brightnessAck = await WriteLightAsync(GoveeProtocol.Brightness(bright, v), $"brightness {bright:P0}", CancellationToken.None);
+                if (brightnessAck < 0) lastLight = null;
             }
             finally { lightWriteBusy = false; }
         });
@@ -318,16 +402,40 @@ public sealed class HomeController : IAsyncDisposable
             _ = SendPlugAsync(wind.Slot, true, d.WindEvidence, CancellationToken.None, false, false, mediaTime, d.WindConfidence, d.Scene);
         else if (!d.WantWind && gate.IsOn && (allowed || SimulationMode || wind.Authorized))
             _ = SendPlugAsync(wind.Slot, false, "wind scene ended", CancellationToken.None, false, false, mediaTime, 0, d.Scene);
+        // TAPO_02 is the master power source for the Govee strip; BLE only
+        // supplies colour and brightness *after* confirmed source power.
+        var stripSource = cfg.Plugs.FirstOrDefault(p => p.IsLightPower);
+        if (stripSource != null)
+        {
+            var sourceGate = Gate(stripSource.Slot);
+            bool playing = d.State.StartsWith("Analysing ", StringComparison.Ordinal) ||
+                           d.State.StartsWith("Replaying ", StringComparison.Ordinal) ||
+                           d.State == "ZMF ride timeline";
+            bool allowedLight = !EmergencyStopped && cfg.PhysicalEnabled && !cfg.VirtualOnly &&
+                                (SimulationMode || (stripSource.LightPowerAutomationAllowed &&
+                                    (cfg.Light.PowerOnly || (cfg.Light.Authorized && cfg.Light.ColorVerified))));
+            if (playing && allowedLight && !sourceGate.IsOn && plugs.ContainsKey(stripSource.Slot))
+                _ = SendPlugAsync(stripSource.Slot, true, "analysed film: Govee power", CancellationToken.None,
+                    false, false, mediaTime, d.SceneConfidence, d.Scene);
+            else if ((!playing || !allowedLight) && sourceGate.IsOn && (stripSource.Authorized || SimulationMode))
+                _ = SendPlugAsync(stripSource.Slot, false, "film paused / stopped: Govee power off",
+                    CancellationToken.None, false, true, mediaTime, 0, d.Scene);
+        }
         RequestLight(d.Light, mediaTime, d.Scene);
     }
 
     /// Pause/stop: turn the automated fan off right away (bypasses min on-time).
     public Task SuspendAsync(string reason)
     {
-        var wind = Plug("TAPO_01");
-        return Gate(wind.Slot).IsOn && (wind.Authorized || SimulationMode)
-            ? SendPlugAsync(wind.Slot, false, reason, CancellationToken.None, false, true, double.NaN, 0, "")
-            : Task.CompletedTask;
+        // Invalidate automatic ON commands even if they are still in flight.
+        foreach (var p in cfg.Plugs.Where(p => p.IsWind || p.IsLightPower))
+            cancelledGeneration.AddOrUpdate(p.Slot, 1, (_, prior) => unchecked(prior + 1));
+        // Pause/stop/connection loss must remove both fan and lighting power.
+        var active = cfg.Plugs.Where(p => (p.IsWind || p.IsLightPower) &&
+            Gate(p.Slot).IsOn && (p.Authorized || SimulationMode))
+            .Select(p => SendPlugAsync(p.Slot, false, reason, CancellationToken.None,
+                false, true, double.NaN, 0, ""));
+        return Task.WhenAll(active);
     }
 
     /// Emergency stop: automation off, scheduled commands dropped, every
@@ -335,12 +443,20 @@ public sealed class HomeController : IAsyncDisposable
     public async Task StopAllEffectsAsync(string source)
     {
         EmergencyStopped = true;
+        foreach (var p in cfg.Plugs)
+            cancelledGeneration.AddOrUpdate(p.Slot, 1, (_, prior) => unchecked(prior + 1));
         foreach (var g in gates.Values) g.EmergencyStop();
         Log("ALL", "EMERGENCY STOP", "requested from " + source, 0);
+        // Emergency plug-OFF commands begin immediately and concurrently:
+        // never delay safety shutdown waiting for Bluetooth packets.
         var tasks = cfg.Plugs.Where(p => (p.Authorized || SimulationMode) && !p.Essential && plugs.ContainsKey(p.Slot))
             .Select(p => SendPlugAsync(p.Slot, false, "emergency stop", CancellationToken.None, true, true, double.NaN, 0, "")).ToList();
-        if (light != null)
-            tasks.Add(WriteLightAsync(GoveeProtocol.Color(255, 160, 80, cfg.Light.Variant), "emergency: warm white", CancellationToken.None).ContinueWith(_ => true));
+        // A Govee strip with no managed Tapo power source may still be lit:
+        // dim it in parallel, without delaying the plug cutoffs.
+        var sourceManaged = cfg.Plugs.Any(p => p.IsLightPower && (p.Authorized || SimulationMode) && !p.Essential);
+        if (light != null && !sourceManaged)
+            tasks.Add(WriteLightAsync(GoveeProtocol.Color(255, 160, 80, cfg.Light.Variant),
+                "emergency: warm white", CancellationToken.None).ContinueWith(_ => true));
         await Task.WhenAll(tasks);
     }
 
