@@ -97,6 +97,13 @@ struct AppSettings: Codable, Equatable {
     var fourDXPrice = 400
     var fourDXIntensity: Double = 1.0
     var fourDXHaptics = true
+    var fourDXHapticStrength: Double = 0.75
+    // iPhone-native Govee BLE; independent of the optional Windows Home 4DX PC.
+    var iosGoveeDeviceID = ""
+    var iosGoveeAuto = false
+    var iosGoveeVerified = false
+    var iosGoveeVariant: GoveeColorVariant = .manual02
+    var iosGoveeBrightness: Double = 0.65
     /// Virtual-only atmospheric effects and seat model controls.
     var fourDXVirtualMist = true
     var fourDXVirtualSnow = true

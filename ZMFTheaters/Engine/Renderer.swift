@@ -97,6 +97,9 @@ final class Renderer {
     weak var game: CinemaGame?
     weak var session: TheaterSession?
     weak var youtubeCinema: YouTubeCinemaSession?
+    weak var goveeIOS: GoveeIOSController?
+    private var lastSceneColorTick: CFTimeInterval = 0
+    private var lastNativeLightSample: CFAbsoluteTime = 0
     var settings = AppSettings()
     var thermalThrottle = false
     /// Names of friends in the current watch party (shown seated beside you).
@@ -255,6 +258,16 @@ final class Renderer {
         houseLights += (targetLight - houseLights) * min(1, dt * 0.45)
 
         updateScreenContent(session: session, dt: Double(dt))
+        if timestamp - lastSceneColorTick >= 0.23 {
+            lastSceneColorTick = timestamp
+            if youtubeCinema?.playing == true, let youtubeCinema, youtubeCinema.video != nil {
+                goveeIOS?.sceneColor(
+                    CinemaLightPalette.youtubeRhythm(seconds: youtubeCinema.playbackTime, preset: youtubeCinema.preset),
+                    source: "YouTube: rhythmic fallback (protected video frames inaccessible)")
+            } else if session.phase != .feature || session.feature.player.rate <= 0 {
+                goveeIOS?.playbackStopped()
+            }
+        }
 
         let size = layer.drawableSize
         guard size.width > 0, size.height > 0 else { return }
@@ -776,6 +789,7 @@ final class Renderer {
             fourDX.beginMedia(id: ticket.mediaId, duration: session.feature.duration)
         }
         fourDX.flashesAllowed = settings.fourDXScreenFlashes
+        fourDX.hapticStrength = Float(max(0, min(1, settings.fourDXHapticStrength)))
         if want && !fourDX.running { fourDX.start(haptics: settings.fourDXHaptics) }
         if !want && fourDX.running { fourDX.stop() }
         let grid = screenAverage.contents().bindMemory(to: Vec4.self, capacity: 65).advanced(by: 1)
@@ -815,6 +829,13 @@ final class Renderer {
             let eid = ObjectIdentifier(engine)
             if eid != lastScreenEngineId { videoTexture = nil; lastScreenEngineId = eid }
             if let pb = engine.copyLatestPixelBuffer(), let cache = textureCache {
+                if session.phase == .feature && session.feature.player.rate > 0,
+                   CFAbsoluteTimeGetCurrent() - lastNativeLightSample >= 0.34 {
+                    lastNativeLightSample = CFAbsoluteTimeGetCurrent()
+                    if let palette = CinemaLightPalette.nativeMovieFrame(pb) {
+                        goveeIOS?.sceneColor(palette, source: "Decoded film: sampled on iPhone")
+                    }
+                }
                 let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
                 var cv: CVMetalTexture?
                 CVMetalTextureCacheCreateTextureFromImage(kCFAllocatorDefault, cache, pb, nil, .bgra8Unorm_srgb, w, h, 0, &cv)

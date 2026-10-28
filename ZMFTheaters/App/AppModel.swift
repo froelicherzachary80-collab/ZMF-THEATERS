@@ -20,6 +20,8 @@ final class AppModel: ObservableObject {
     let youtubeCinema = YouTubeCinemaSession()
     /// Link to the Windows Home 4DX host (fan/lights brain).
     let home4DX = Home4DXLink()
+    /// Direct iOS Bluetooth lights — no PC, Windows service or Tapo necessary.
+    let goveeIOS = GoveeIOSController()
     let game = CinemaGame()
     let party = WatchParty()
     let renderer: Renderer?
@@ -39,6 +41,12 @@ final class AppModel: ObservableObject {
         renderer?.game = game
         renderer?.session = session
         renderer?.youtubeCinema = youtubeCinema
+        renderer?.goveeIOS = goveeIOS
+        goveeIOS.configure(deviceID: settings.iosGoveeDeviceID,
+                           autoEnabled: settings.iosGoveeAuto,
+                           verified: settings.iosGoveeVerified,
+                           variant: settings.iosGoveeVariant,
+                           brightness: settings.iosGoveeBrightness)
         home4DX.startReporting { [weak self] in
             guard let self, self.session.phase == .feature, let item = self.session.item else { return nil }
             let t = self.session.feature.currentTime
@@ -69,6 +77,11 @@ final class AppModel: ObservableObject {
             .sink { [weak self] s in
                 guard let self else { return }
                 self.renderer?.settings = s
+                self.goveeIOS.configure(deviceID: s.iosGoveeDeviceID,
+                                        autoEnabled: s.iosGoveeAuto,
+                                        verified: s.iosGoveeVerified,
+                                        variant: s.iosGoveeVariant,
+                                        brightness: s.iosGoveeBrightness)
                 self.game.lookSensitivity = Float(s.lookSensitivity)
                 self.game.allDoorsUnlocked = s.allDoorsUnlocked
             }
@@ -77,7 +90,8 @@ final class AppModel: ObservableObject {
         // Forward nested ObservableObject changes so views observing AppModel refresh.
         for publisher in [library.objectWillChange.eraseToAnyPublisher(), wallet.objectWillChange.eraseToAnyPublisher(),
                           rotation.objectWillChange.eraseToAnyPublisher(), settingsStore.objectWillChange.eraseToAnyPublisher(),
-                          party.objectWillChange.eraseToAnyPublisher(), youtubeCinema.objectWillChange.eraseToAnyPublisher()] {
+                          party.objectWillChange.eraseToAnyPublisher(), youtubeCinema.objectWillChange.eraseToAnyPublisher(),
+                          goveeIOS.objectWillChange.eraseToAnyPublisher()] {
             publisher.sink { [weak self] _ in self?.objectWillChange.send() }.store(in: &cancellables)
         }
 
