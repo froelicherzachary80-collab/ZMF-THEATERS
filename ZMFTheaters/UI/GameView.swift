@@ -61,7 +61,7 @@ struct GameView: View {
 
             if model.youtubeCinema.isOpen {
                 YouTubeCinemaOverlay(cinema: model.youtubeCinema, renderer: model.renderer,
-                    onBrowse: { model.stopYouTubeCinema(); sheet = .youtube },
+                    onBrowse: { sheet = .youtube },
                     onClose: { model.stopYouTubeCinema() })
             }
 
@@ -193,7 +193,11 @@ struct GameView: View {
                 HUDButton(symbol: "creditcard.fill", label: "WALLET") { sheet = .wallet }
                 HUDButton(symbol: "iphone", label: "PHONE") { sheet = .boxOffice }
                 HUDButton(symbol: "person.2.fill", label: "PARTY", tint: model.party.isInParty ? .green : .white) { sheet = .party }
-                HUDButton(symbol: "play.rectangle.fill", label: "YOUTUBE", tint: .red) { sheet = .youtube }
+                HUDButton(symbol: "play.rectangle.fill", label: "YOUTUBE", tint: .red) {
+                    // The projector itself becomes the browser. No transient
+                    // floating YouTube screen remains after dismissing a sheet.
+                    model.openYouTubeProjector()
+                }
                 HUDButton(symbol: game.cameraMode == .firstPerson ? "eye.fill" : "figure.stand", label: "CAMERA") {
                     game.cameraMode = game.cameraMode == .firstPerson ? .thirdPerson : .firstPerson
                 }
