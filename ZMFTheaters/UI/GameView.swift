@@ -61,7 +61,7 @@ struct GameView: View {
 
             if model.youtubeCinema.isOpen {
                 YouTubeCinemaOverlay(cinema: model.youtubeCinema, renderer: model.renderer,
-                    onBrowse: { model.stopYouTubeCinema(); sheet = .youtube },
+                    onBrowse: { sheet = .youtube },
                     onClose: { model.stopYouTubeCinema() })
             }
 
