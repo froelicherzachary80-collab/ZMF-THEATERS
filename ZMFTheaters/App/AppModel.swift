@@ -269,19 +269,33 @@ final class AppModel: ObservableObject {
 
     // MARK: YouTube 4DX Browser
 
-    func startYouTubeCinema(videoID: String, title: String) {
-        // Explicit user action; keep independent Jellyfin features intact.
+    /// YouTube stays in the auditorium even after the search sheet closes.
+    /// The projected website and individual video share one room-locked
+    /// surface; the 3D room always remains visible around it.
+    func openYouTubeProjector(address: String? = nil) {
+        prepareYouTubeProjector()
+        youtubeCinema.openBrowser(address: address)
+        flash("YouTube is now on the Room 09 projector screen.")
+    }
+
+    private func prepareYouTubeProjector() {
         if session.isRunning { session.end() }
         if mode == nil { mode = .singleplayer }
-        let id = 9
-        game.debugPlace(CinemaWorld.seatPosition(room: id, row: 4, seat: 3),
-                        yaw: CinemaWorld.screenYaw(id), pitch: 0)
-        game.sit(room: id, row: 4, seat: 3)
+        if !game.isSeated || game.seatedAt?.room != 9 {
+            let id = 9
+            game.debugPlace(CinemaWorld.seatPosition(room: id, row: 4, seat: 3),
+                            yaw: CinemaWorld.screenYaw(id), pitch: 0)
+            game.sit(room: id, row: 4, seat: 3)
+        }
+    }
+
+    func startYouTubeCinema(videoID: String, title: String) {
+        prepareYouTubeProjector()
         youtubeCinema.open(videoID: videoID, title: title,
                            preset: settings.youtubeCinemaPreset,
                            bpm: settings.youtubeCinemaBPM,
                            cuts: settings.youtubeCueMarksByVideo[videoID] ?? [])
-        flash("YouTube Cinema · Open video, tap Play to start virtual 4DX")
+        flash("YouTube video projected on the Room 09 screen · tap Play.")
     }
 
     func stopYouTubeCinema() {

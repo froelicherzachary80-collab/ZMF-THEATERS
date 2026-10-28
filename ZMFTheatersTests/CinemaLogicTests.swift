@@ -152,6 +152,32 @@ final class CinemaLogicTests: XCTestCase {
         XCTAssertEqual(engine.seatTilt, .zero)
     }
 
+    func testYouTubeProjectorWebsiteSurvivesBrowserDismissal() {
+        let session = YouTubeCinemaSession()
+        session.openBrowser(address: "https://www.youtube.com/results?search_query=movie+trailers")
+        XCTAssertTrue(session.isOpen)
+        XCTAssertTrue(session.browserOpen)
+        XCTAssertNil(session.video)
+        XCTAssertEqual(session.projectedAddress, "https://www.youtube.com/results?search_query=movie+trailers")
+        session.open(videoID: "dQw4w9WgXcQ", title: "Cinema", preset: .cinematic, bpm: 125, cuts: [])
+        XCTAssertTrue(session.isOpen)
+        XCTAssertFalse(session.browserOpen)
+        XCTAssertNotNil(session.video)
+        session.openBrowser()
+        XCTAssertTrue(session.isOpen, "the web browser stays on the cinema screen")
+        XCTAssertNil(session.video)
+        session.close()
+        XCTAssertFalse(session.isOpen)
+    }
+
+    func testYouTubeProjectorCannotNavigateToNonYouTubeAddress() {
+        let session = YouTubeCinemaSession()
+        session.openBrowser(address: "https://youtube.com.evil.example/")
+        XCTAssertEqual(session.projectedAddress, "https://m.youtube.com")
+        session.openBrowser(address: "file:///private/")
+        XCTAssertEqual(session.projectedAddress, "https://m.youtube.com")
+    }
+
     func testYouTubePlayerProjectsOntoRealAuditoriumScreen() {
         let size = CGSize(width: 1179, height: 2556)
         let fov = Float(AppSettings().seatedFieldOfView) * .pi / 180
