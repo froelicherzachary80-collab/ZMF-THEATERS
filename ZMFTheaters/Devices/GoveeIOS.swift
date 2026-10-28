@@ -1,6 +1,7 @@
 import Foundation
 import CoreBluetooth
 import Combine
+import CoreVideo
 
 /// Locally sent 24-bit RGB. No internet account, Windows host or cloud API.
 struct CinemaRGB: Equatable {
@@ -92,6 +93,33 @@ enum CinemaLightPalette {
 
     /// YouTube does not expose protected video pixels to the app. For these
     /// videos, use a clearly labelled *rhythmic fallback*, not fake scene AI.
+    /// Sample a small central grid from a decoded, unprotected BGRA movie.
+    /// Ignores black letterboxing and avoids per-frame image allocations.
+    static func nativeMovieFrame(_ pixelBuffer: CVPixelBuffer) -> CinemaRGB? {
+        guard CVPixelBufferGetPixelFormatType(pixelBuffer) == kCVPixelFormatType_32BGRA else { return nil }
+        let w = CVPixelBufferGetWidth(pixelBuffer)
+        let h = CVPixelBufferGetHeight(pixelBuffer)
+        guard w >= 24, h >= 24 else { return nil }
+        guard CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly) == kCVReturnSuccess else { return nil }
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddress(pixelBuffer) else { return nil }
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+        let stride = CVPixelBufferGetBytesPerRow(pixelBuffer)
+        var r = 0, g = 0, b = 0, count = 0
+        for iy in 0..<12 {
+            let y = (h * (3 + iy * 2)) / 30
+            for ix in 0..<20 {
+                let x = (w * (3 + ix * 2)) / 46
+                let at = y * stride + x * 4
+                let blue = Int(bytes[at]), green = Int(bytes[at + 1]), red = Int(bytes[at + 2])
+                if max(red, max(green, blue)) < 9 { continue }
+                r += red; g += green; b += blue; count += 1
+            }
+        }
+        guard count > 8 else { return nil }
+        return fromVideoAverage(CinemaRGB(UInt8(r/count), UInt8(g/count), UInt8(b/count)))
+    }
+
     static func youtubeRhythm(seconds: Double, preset: YouTubeMotionPreset) -> CinemaRGB {
         let t = seconds.isFinite ? max(0, seconds) : 0
         let cycle = (sin(t * 0.17) + 1) * 0.5
@@ -139,6 +167,8 @@ final class GoveeIOSController: NSObject, ObservableObject {
     private var brightness = 0.65
     private var lastPacketTime: TimeInterval = 0
     private var lastSent: CinemaRGB?
+    private var powerCommandSent = false
+    private var lastBrightness: Double?
     private var transitionColor: CinemaRGB?
     private var lastConnectTry: Date = .distantPast
 
@@ -188,6 +218,8 @@ final class GoveeIOSController: NSObject, ObservableObject {
         self.peripheral = nil
         control = nil
         connected = false
+        powerCommandSent = false
+        lastBrightness = nil
         bluetoothStatus = "Disconnected"
     }
 
@@ -224,9 +256,17 @@ final class GoveeIOSController: NSObject, ObservableObject {
         }
         let type: CBCharacteristicWriteType = ch.properties.contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
         if type == .withoutResponse && !p.canSendWriteWithoutResponse { return false }
-        p.writeValue(GoveeBLEPackets.power(true), for: ch, type: type)
+        // Do NOT spam power commands every ~170ms. Send once per connection
+        // and only update colour and changed brightness thereafter.
+        if !powerCommandSent {
+            p.writeValue(GoveeBLEPackets.power(true), for: ch, type: type)
+            powerCommandSent = true
+        }
         p.writeValue(GoveeBLEPackets.color(color, variant: variant), for: ch, type: type)
-        p.writeValue(GoveeBLEPackets.brightness(brightness, variant: variant), for: ch, type: type)
+        if lastBrightness == nil || abs((lastBrightness ?? 0) - brightness) > 0.015 {
+            p.writeValue(GoveeBLEPackets.brightness(brightness, variant: variant), for: ch, type: type)
+            lastBrightness = brightness
+        }
         currentColor = color
         lastSent = color
         lastPacketTime = ProcessInfo.processInfo.systemUptime
@@ -235,7 +275,7 @@ final class GoveeIOSController: NSObject, ObservableObject {
 
     private func startScanAndRestore() {
         guard let manager, manager.state == .poweredOn else { return }
-        if let id = selectedID, let known = manager.retrievePeripherals(withIdentifiers: [id]).first {
+        if !scanRequested, let id = selectedID, let known = manager.retrievePeripherals(withIdentifiers: [id]).first {
             connectPeripheral(known)
             return
         }
@@ -303,6 +343,8 @@ extension GoveeIOSController: CBCentralManagerDelegate, CBPeripheralDelegate {
         control = nil
         transitionColor = nil
         lastSent = nil
+        powerCommandSent = false
+        lastBrightness = nil
         bluetoothStatus = "Disconnected — " + (error?.localizedDescription ?? "light unavailable")
         if automationEnabled, p.identifier == selectedID {
             // Reconnect after the user manually re-powers the light.
@@ -329,6 +371,8 @@ extension GoveeIOSController: CBCentralManagerDelegate, CBPeripheralDelegate {
             ($0.properties.contains(.writeWithoutResponse) || $0.properties.contains(.write))
         }) else { return }
         control = ch
+        powerCommandSent = false
+        lastBrightness = nil
         peripheral = p
         deviceName = p.name ?? "Govee light"
         connected = true

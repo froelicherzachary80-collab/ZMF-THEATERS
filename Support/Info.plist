@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>ZMF THEATERS+ connects directly to your Govee Bluetooth light strip to sync verified colors with movies on your iPhone.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Personal Jellyfin servers are often reached over LAN IPs or private

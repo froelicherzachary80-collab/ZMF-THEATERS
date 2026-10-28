@@ -25,6 +25,7 @@ struct AdminView: View {
                     NavigationLink { PlaybackAdminView() } label: { Label("Playback", systemImage: "play.circle") }
                     NavigationLink { StereoAdminView() } label: { Label("3D Cinema Settings", systemImage: "eyeglasses") }
                     NavigationLink { FourDXAdminView() } label: { Label("Immersive 4DX", systemImage: "wind") }
+                    NavigationLink { GoveeIOSView() } label: { Label("iPhone Govee Lighting", systemImage: "lightbulb.led.wide") }
                     NavigationLink { PlannedView(title: "AI Control", version: "v0.3", detail: "Procedural AI moviegoers and employees with names, outfits, personalities and daily schedules — no paid LLM required.") } label: { Label("AI Control", systemImage: "person.3") }
                     NavigationLink { PlannedView(title: "Room Designer", version: "v0.4", detail: "Per-room lighting colour, decoration density and ambience. Genre identity and Room 01's 1900–1999 rule stay fixed.") } label: { Label("Room Designer", systemImage: "paintpalette") }
                 }
@@ -468,6 +469,12 @@ struct FourDXAdminView: View {
                     Slider(value: $settingsStore.settings.fourDXIntensity, in: 0...1)
                 }
                 Toggle("iPhone haptics (Taptic Engine rumble)", isOn: $settingsStore.settings.fourDXHaptics)
+                VStack(alignment: .leading) {
+                    Text("Phone haptic intensity: \(Int(settingsStore.settings.fourDXHapticStrength * 100))%")
+                    Slider(value: $settingsStore.settings.fourDXHapticStrength, in: 0...1)
+                    Text("Sharper detected hits, faster vibration updates, smoother ambience. Limited by the iPhone Taptic Engine; not a physical chair or vest.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
                 VStack(alignment: .leading) {
                     Text("Virtual chair travel: \(Int(settingsStore.settings.fourDXSeatTravel * 100))%")
                     Slider(value: $settingsStore.settings.fourDXSeatTravel, in: 0...1.5)

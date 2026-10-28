@@ -152,6 +152,30 @@ final class CinemaLogicTests: XCTestCase {
         XCTAssertEqual(engine.seatTilt, .zero)
     }
 
+    func testGoveeBLEPacketAndTwentyFourBitColorVariants() {
+        let cyan = CinemaRGB(12, 233, 255)
+        for variant in GoveeColorVariant.allCases {
+            let bytes = [UInt8](GoveeBLEPackets.color(cyan, variant: variant))
+            XCTAssertEqual(bytes.count, 20)
+            XCTAssertEqual(bytes[19], bytes.prefix(19).reduce(UInt8(0), ^))
+            XCTAssertEqual(bytes[0], 0x33)
+            XCTAssertEqual(bytes[1], 0x05)
+        }
+        XCTAssertTrue(GoveeBLEPackets.looksLikeGovee("ihoment_H6163_ABC"))
+        XCTAssertFalse(GoveeBLEPackets.looksLikeGovee("JBL Speaker"))
+    }
+
+    func testScenePalettesAreContinuousAndBounded() {
+        let ice = CinemaLightPalette.fromVideoAverage(CinemaRGB(223, 231, 249))
+        XCTAssertGreaterThan(ice.b, ice.r)
+        let low = CinemaLightPalette.fromVideoAverage(CinemaRGB(0, 0, 0))
+        XCTAssertGreaterThan(low.b, low.r)
+        let a = CinemaLightPalette.youtubeRhythm(seconds: 3, preset: .concert)
+        let b = CinemaLightPalette.youtubeRhythm(seconds: 3.1, preset: .concert)
+        XCTAssertLessThan(abs(Int(a.r) - Int(b.r)), 15)
+        XCTAssertEqual(CinemaRGB(1, 2, 3).hex, "#010203")
+    }
+
     func testYouTubeProjectorWebsiteSurvivesBrowserDismissal() {
         let session = YouTubeCinemaSession()
         session.openBrowser(address: "https://www.youtube.com/results?search_query=movie+trailers")

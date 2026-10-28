@@ -137,6 +137,8 @@ final class FourDXEngine {
     private var engine: CHHapticEngine?
     private var rumblePlayer: CHHapticAdvancedPatternPlayer?
     private var lastHapticUpdate: Double = -1
+    /// 0...1 user haptic intensity, separate from chair/motion intensity.
+    var hapticStrength: Float = 0.75
     private(set) var running = false
     private var inRide = false
 
@@ -394,11 +396,25 @@ final class FourDXEngine {
             stored.removeAll(keepingCapacity: true)
             lastSaved = seconds
         }
-        if let p = rumblePlayer, seconds - lastHapticUpdate > 0.05 {
-            lastHapticUpdate = seconds
-            try? p.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl,
-                                value: min(0.5, rumble * (0.8 + strength)), relativeTime: 0)], atTime: CHHapticTimeImmediate)
-        }
+        drivePhoneHaptics(time: seconds, energy: rumble * (0.8 + strength),
+                          sharp: max(hitFx, shock * 0.7))
+    }
+
+    /// Responsive, bounded two-axis Taptic Engine drive. Haptic sharpness
+    /// distinguishes hits from diffuse ambience; intensity stays user limited.
+    /// Monotonic player time is used only as a rate gate (no repeating timers).
+    private func drivePhoneHaptics(time: Double, energy: Float, sharp: Float) {
+        guard let player = rumblePlayer, hapticStrength > 0 else { return }
+        if lastHapticUpdate >= 0, time >= lastHapticUpdate, time - lastHapticUpdate < 0.025 { return }
+        lastHapticUpdate = time
+        let gain = max(0, min(1, hapticStrength))
+        let intensity = max(0, min(0.85, (energy + sharp * 0.22) * gain * 1.9))
+        let crispness = max(0.06, min(0.9, 0.15 + sharp * 0.7))
+        let values: [CHHapticDynamicParameter] = [
+            CHHapticDynamicParameter(parameterID: .hapticIntensityControl, value: intensity, relativeTime: 0),
+            CHHapticDynamicParameter(parameterID: .hapticSharpnessControl, value: crispness, relativeTime: 0)
+        ]
+        try? player.sendParameters(values, atTime: CHHapticTimeImmediate)
     }
 
     // MARK: Real-time events
@@ -454,7 +470,8 @@ final class FourDXEngine {
             impulseVel += Vec3(jitter * 0.25, 0.12 * abs(jitter), 0) * g
             debrisFx = min(1, debrisFx + 0.35 * e.strength)
         }
-        if let engine, let pattern = FourDXHapticPatterns.pattern(for: e.kind, strength: e.strength * (0.5 + 0.5 * k)),
+        if hapticStrength > 0, let engine, let pattern = FourDXHapticPatterns.pattern(for: e.kind,
+               strength: e.strength * (0.5 + 0.5 * k) * hapticStrength),
            let player = try? engine.makePlayer(with: pattern) {
             try? player.start(atTime: CHHapticTimeImmediate)
         }
@@ -548,12 +565,7 @@ final class FourDXEngine {
         if flashesAllowed && seconds - lastFlash < 0.12 { light = 0.22 * strength }
         updateScreenLayer(step: step, wind: min(1, abs(direction) * motion * 14 + pulse) * strength,
                           water: max(splash, mist > 0.55 ? mist * 0.35 * strength : 0), flash: light)
-        if let player = rumblePlayer, seconds - lastHapticUpdate > 0.075 {
-            lastHapticUpdate = seconds
-            try? player.sendParameters([CHHapticDynamicParameter(
-                parameterID: .hapticIntensityControl, value: min(0.3, rumble), relativeTime: 0)],
-                atTime: CHHapticTimeImmediate)
-        }
+        drivePhoneHaptics(time: seconds, energy: rumble, sharp: cutPulse)
     }
 
     /// Eases the screen-space layer. Water rises fast (a spray hits) and
@@ -583,10 +595,7 @@ final class FourDXEngine {
         motionKind = .turbulence
         strobe = 0
         updateScreenLayer(step: step, wind: w * k, water: wt * k, flash: flashesAllowed ? f * k : 0)
-        if let p = rumblePlayer {
-            try? p.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl,
-                                value: min(0.4, rumble), relativeTime: 0)], atTime: CHHapticTimeImmediate)
-        }
+        drivePhoneHaptics(time: Double(lastTimestamp ?? 0), energy: rumble, sharp: shock)
     }
 
     private func updateAtmosphere(timestamp: Double, activity: Float) {
@@ -623,11 +632,6 @@ final class FourDXEngine {
         updateAtmosphere(timestamp: timestamp, activity: rumble)
         updateScreenLayer(step: step, wind: min(1, 0.25 + abs(sinf(t * 0.6)) * 0.5) * k,
                           water: mist > 0.55 ? mist * 0.45 * k : 0, flash: 0)
-        if let p = rumblePlayer, Double(t) - lastHapticUpdate > 0.075 {
-            lastHapticUpdate = Double(t)
-            try? p.sendParameters([CHHapticDynamicParameter(
-                parameterID: .hapticIntensityControl, value: min(0.2, rumble), relativeTime: 0)],
-                atTime: CHHapticTimeImmediate)
-        }
+        drivePhoneHaptics(time: Double(t), energy: rumble, sharp: 0.08)
     }
 }
